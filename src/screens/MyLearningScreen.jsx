@@ -2,223 +2,361 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   TouchableOpacity,
+  StyleSheet,
   Dimensions,
-  Platform,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../supabase-client';
 
 const { width, height } = Dimensions.get('window');
 
-// Responsive helper functions
+// Responsive scaling functions
 const scale = (size) => (width / 375) * size;
 const verticalScale = (size) => (height / 812) * size;
 const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
 
-const MyLearningScreen = () => {
-  const { isLoggedIn } = useAuth();
-  const [selectedPeriod, setSelectedPeriod] = useState('Last 30 days');
+const MyLearningScreen = ({ navigation }) => {
+  const { user } = useAuth();
+  
+  // States
   const [loading, setLoading] = useState(true);
-  const [userData, setUserData] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [overallProgress, setOverallProgress] = useState(0);
+  const [stats, setStats] = useState({
+    totalModules: 0,
+    completedModules: 0,
+    totalHours: 0,
+    dayStreak: 0,
+  });
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [goals, setGoals] = useState({
+    modulesTarget: 15,
+    modulesCompleted: 0,
+    hoursTarget: 30,
+    hoursCompleted: 0,
+  });
 
-  // Fetch user learning data
   useEffect(() => {
-    if (isLoggedIn) {
-      fetchUserLearningData();
-    }
-  }, [isLoggedIn]);
+    fetchProgressData();
+  }, []);
 
-  const fetchUserLearningData = async () => {
+  const fetchProgressData = async () => {
     try {
       setLoading(true);
-      
-      // Try to get stored user data
-      const storedData = await AsyncStorage.getItem('userLearningData');
-      
-      if (storedData) {
-        setUserData(JSON.parse(storedData));
-      } else {
-        // Initialize with default data for new users
-        const defaultData = {
-          userName: 'Dev',
-          overallProgress: 62,
-          stats: {
-            totalModules: 12,
-            totalHours: 24.5,
-            dayStreak: 7,
-          },
-          recentActivity: [
-            {
-              id: 1,
-              title: 'Data Security Fundamentals',
-              subtitle: 'Completed with 95% score',
-              date: 'Today',
-              hours: '2.5 hrs',
-            },
-            {
-              id: 2,
-              title: 'Project Management Basics',
-              subtitle: 'Completed with 88% score',
-              date: 'Yesterday',
-              hours: '1.8 hrs',
-            },
-            {
-              id: 3,
-              title: 'Communication Skills',
-              subtitle: 'Completed with 92% score',
-              date: '3 days ago',
-              hours: '3.2 hrs',
-            },
-          ],
-          certificates: [
-            {
-              id: 1,
-              title: 'Data Security Certificate',
-              issued: 'Issued Dec 15, 2024',
-            },
-            {
-              id: 2,
-              title: 'Project Management Certificate',
-              issued: 'Issued Dec 14, 2024',
-            },
-          ],
-          goals: [
-            { id: 1, label: 'Complete 15 modules', current: 12, target: 15 },
-            { id: 2, label: '30 hours learning', current: 24.5, target: 30 },
-          ],
-        };
-        
-        await AsyncStorage.setItem('userLearningData', JSON.stringify(defaultData));
-        setUserData(defaultData);
-      }
+
+      // Fetch user progress statistics
+      await Promise.all([
+        fetchOverallProgress(),
+        fetchStats(),
+        fetchRecentActivity(),
+        fetchCertificates(),
+        fetchGoals(),
+      ]);
+
     } catch (error) {
-      console.error('Error fetching user learning data:', error);
+      console.error('Error fetching progress data:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const handleDownloadCertificate = async (certificateId) => {
-    // TODO: Implement certificate download functionality
-    console.log('Downloading certificate:', certificateId);
+  const fetchOverallProgress = async () => {
+    try {
+      // Get all user module progress to calculate overall completion
+      const { data: moduleProgress } = await supabase
+        .from('user_module_progress')
+        .select('videos_completed, total_videos')
+        .eq('user_id', user.id);
+
+      if (moduleProgress && moduleProgress.length > 0) {
+        // Calculate overall progress from all modules
+        const totalVideosCompleted = moduleProgress.reduce((sum, m) => sum + (m.videos_completed || 0), 0);
+        const totalVideosOverall = moduleProgress.reduce((sum, m) => sum + (m.total_videos || 0), 0);
+        
+        const progress = totalVideosOverall > 0 
+          ? Math.round((totalVideosCompleted / totalVideosOverall) * 100) 
+          : 0;
+        
+        setOverallProgress(progress);
+      } else {
+        // Fallback to direct video count if no module progress exists
+        const { count: totalVideos } = await supabase
+          .from('videos')
+          .select('*', { count: 'exact', head: true });
+
+        const { count: completedVideos } = await supabase
+          .from('user_video_progress')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('completed', true);
+
+        const progress = totalVideos > 0 ? Math.round((completedVideos / totalVideos) * 100) : 0;
+        setOverallProgress(progress);
+      }
+    } catch (error) {
+      console.error('Error fetching overall progress:', error);
+    }
   };
 
-  const handleExportData = async () => {
-    // TODO: Implement data export functionality
-    console.log('Exporting user data');
+  const fetchStats = async () => {
+    try {
+      // Get total modules count
+      const { count: totalModules } = await supabase
+        .from('modules')
+        .select('*', { count: 'exact', head: true });
+
+      // Get completed modules from user_module_progress (more efficient)
+      const { data: moduleProgress } = await supabase
+        .from('user_module_progress')
+        .select('*')
+        .eq('user_id', user.id);
+
+      // Count modules where progress_percent is 100 or videos_completed == total_videos
+      const completedModules = moduleProgress?.filter(m => 
+        m.progress_percent >= 100 || 
+        (m.total_videos > 0 && m.videos_completed >= m.total_videos)
+      ).length || 0;
+
+      // Calculate total hours from watched duration
+      const { data: progressData } = await supabase
+        .from('user_video_progress')
+        .select('watched_duration')
+        .eq('user_id', user.id);
+
+      const totalSeconds = progressData?.reduce((sum, p) => sum + (p.watched_duration || 0), 0) || 0;
+      const totalHours = (totalSeconds / 3600).toFixed(1);
+
+      // Calculate day streak based on last_accessed dates
+      const dayStreak = await calculateDayStreak(moduleProgress);
+
+      setStats({
+        totalModules: totalModules || 0,
+        completedModules,
+        totalHours: parseFloat(totalHours),
+        dayStreak,
+      });
+
+      setGoals(prev => ({
+        ...prev,
+        modulesCompleted: completedModules,
+        hoursCompleted: parseFloat(totalHours),
+      }));
+
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
   };
 
-  const handleSetNewGoal = () => {
-    // TODO: Implement set new goal functionality
-    console.log('Setting new goal');
+  // Calculate day streak from module progress
+  const calculateDayStreak = async (moduleProgress) => {
+    try {
+      if (!moduleProgress || moduleProgress.length === 0) return 0;
+
+      // Get all unique dates when user accessed modules
+      const accessDates = moduleProgress
+        .map(m => m.last_accessed)
+        .filter(date => date)
+        .map(date => new Date(date).toDateString())
+        .sort((a, b) => new Date(b) - new Date(a)); // Sort descending
+
+      if (accessDates.length === 0) return 0;
+
+      const uniqueDates = [...new Set(accessDates)];
+      const today = new Date().toDateString();
+      
+      // Check if user accessed today or yesterday
+      if (uniqueDates[0] !== today && 
+          uniqueDates[0] !== new Date(Date.now() - 86400000).toDateString()) {
+        return 0; // Streak broken
+      }
+
+      // Count consecutive days
+      let streak = 1;
+      for (let i = 1; i < uniqueDates.length; i++) {
+        const currentDate = new Date(uniqueDates[i - 1]);
+        const prevDate = new Date(uniqueDates[i]);
+        const diffDays = Math.floor((currentDate - prevDate) / 86400000);
+        
+        if (diffDays === 1) {
+          streak++;
+        } else {
+          break; // Streak broken
+        }
+      }
+
+      return streak;
+    } catch (error) {
+      console.error('Error calculating day streak:', error);
+      return 0;
+    }
+  };
+
+  const fetchRecentActivity = async () => {
+    try {
+      const { data } = await supabase
+        .from('user_video_progress')
+        .select(`
+          *,
+          videos (
+            id,
+            title,
+            duration,
+            module_id,
+            modules (
+              name
+            )
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('completed', true)
+        .order('last_watched_at', { ascending: false })
+        .limit(5);
+
+      setRecentActivity(data || []);
+    } catch (error) {
+      console.error('Error fetching recent activity:', error);
+    }
+  };
+
+  const fetchCertificates = async () => {
+    // Placeholder - implement when you have certificates table
+    setCertificates([
+      // { id: 1, name: 'Data Security Certificate', issuedDate: '2024-12-15' },
+      // { id: 2, name: 'Project Management Certificate', issuedDate: '2024-12-14' },
+    ]);
+  };
+
+  const fetchGoals = async () => {
+    // Placeholder - you can store goals in a user_goals table
+    // For now using default values set in state
+  };
+
+  const getTimeAgo = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
+    
+    if (diffInHours < 24) return 'Today';
+    if (diffInHours < 48) return 'Yesterday';
+    const diffInDays = Math.floor(diffInHours / 24);
+    return `${diffInDays} days ago`;
+  };
+
+  const formatDuration = (seconds) => {
+    const hours = (seconds / 3600).toFixed(1);
+    return `${hours} hrs`;
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchProgressData();
   };
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6366f1" />
-        <Text style={styles.loadingText}>Loading your progress...</Text>
-      </View>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6366F1" />
+          <Text style={styles.loadingText}>Loading your progress...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
-
-  if (!userData) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>Unable to load learning data</Text>
-      </View>
-    );
-  }
-
-  const stats = [
-    { 
-      id: 1, 
-      icon: '📖', 
-      value: userData.stats.totalModules.toString(), 
-      label: 'Modules', 
-      color: '#dbeafe', 
-      iconColor: '#2563eb' 
-    },
-    { 
-      id: 2, 
-      icon: '⏰', 
-      value: userData.stats.totalHours.toString(), 
-      label: 'Hours', 
-      color: '#dcfce7', 
-      iconColor: '#16a34a' 
-    },
-    { 
-      id: 3, 
-      icon: '🔥', 
-      value: userData.stats.dayStreak.toString(), 
-      label: 'Day Streak', 
-      color: '#fed7aa', 
-      iconColor: '#ea580c' 
-    },
-  ];
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>My Learning</Text>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}>
+            <Text style={styles.backIcon}>◀</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Progress</Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerIcon}>⬇</Text>
+            <Text style={styles.headerButtonIcon}>⬇️</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerIcon}>⋮</Text>
+            <Text style={styles.headerButtonIcon}>⋮</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Progress Circle */}
-        <View style={styles.progressOverview}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }>
+        
+        {/* Overall Progress Circle */}
+        <View style={styles.progressSection}>
           <View style={styles.progressCircleContainer}>
-            <View style={styles.progressCircle}>
-              <Text style={styles.progressPercentage}>{userData.overallProgress}%</Text>
-              <Text style={styles.progressLabel}>Complete</Text>
+            {/* Circular Progress using View */}
+            <View style={styles.circleContainer}>
+              <View style={styles.circleBackground}>
+                <View style={[styles.circleProgress, { 
+                  transform: [{ rotate: `${(overallProgress * 3.6)}deg` }] 
+                }]} />
+              </View>
+              <View style={styles.innerCircle}>
+                <Text style={styles.progressPercentage}>{overallProgress}%</Text>
+                <Text style={styles.progressLabel}>Complete</Text>
+              </View>
             </View>
           </View>
-          <Text style={styles.progressTitle}>
-            {userData.overallProgress >= 80 ? 'Outstanding Progress!' : 
-             userData.overallProgress >= 50 ? 'Great Progress!' : 
-             'Keep Going!'}
-          </Text>
-          <Text style={styles.progressSubtitle}>
-            {userData.overallProgress >= 80 ? "You're almost there!" : 'Keep up the excellent work'}
-          </Text>
+          <Text style={styles.progressTitle}>Great Progress!</Text>
+          <Text style={styles.progressSubtitle}>Keep up the excellent work</Text>
         </View>
 
-        {/* Stats Section */}
-        <View style={styles.statsSection}>
-          {stats.map((stat) => (
-            <View key={stat.id} style={styles.statItem}>
-              <View style={[styles.statIcon, { backgroundColor: stat.color }]}>
-                <Text style={styles.statIconText}>{stat.icon}</Text>
+        {/* Stats Row */}
+        <View style={styles.statsCard}>
+          <View style={styles.statsGrid}>
+            <View style={styles.statItem}>
+              <View style={[styles.statIcon, { backgroundColor: '#DBEAFE' }]}>
+                <Text style={styles.statEmoji}>📚</Text>
               </View>
-              <Text style={styles.statValue}>{stat.value}</Text>
-              <Text style={styles.statLabel}>{stat.label}</Text>
+              <Text style={styles.statValue}>{stats.completedModules}</Text>
+              <Text style={styles.statLabel}>Modules</Text>
             </View>
-          ))}
+
+            <View style={styles.statItem}>
+              <View style={[styles.statIcon, { backgroundColor: '#D1FAE5' }]}>
+                <Text style={styles.statEmoji}>🕐</Text>
+              </View>
+              <Text style={styles.statValue}>{stats.totalHours}</Text>
+              <Text style={styles.statLabel}>Hours</Text>
+            </View>
+
+            <View style={styles.statItem}>
+              <View style={[styles.statIcon, { backgroundColor: '#FED7AA' }]}>
+                <Text style={styles.statEmoji}>🔥</Text>
+              </View>
+              <Text style={styles.statValue}>{stats.dayStreak}</Text>
+              <Text style={styles.statLabel}>Day Streak</Text>
+            </View>
+          </View>
         </View>
 
         {/* Filter and Export */}
         <View style={styles.filterSection}>
           <TouchableOpacity style={styles.filterButton}>
             <Text style={styles.filterIcon}>📅</Text>
-            <Text style={styles.filterText}>{selectedPeriod}</Text>
+            <Text style={styles.filterText}>Last 30 days</Text>
             <Text style={styles.filterChevron}>▼</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.exportButton} onPress={handleExportData}>
-            <Text style={styles.exportIcon}>⬇</Text>
+          <TouchableOpacity style={styles.exportButton}>
+            <Text style={styles.exportIcon}>⬇️</Text>
             <Text style={styles.exportText}>Export</Text>
           </TouchableOpacity>
         </View>
@@ -226,158 +364,155 @@ const MyLearningScreen = () => {
         {/* Recent Activity */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Activity</Text>
-          {userData.recentActivity.length > 0 ? (
+          {recentActivity.length > 0 ? (
             <View style={styles.activityList}>
-              {userData.recentActivity.map((activity) => (
-              <View key={activity.id} style={styles.activityCard}>
-                <View style={styles.activityContent}>
-                  <View style={styles.activityCheckIcon}>
-                    <Text style={styles.activityCheckText}>✓</Text>
+              {recentActivity.map((item, index) => (
+                <View key={index} style={styles.activityCard}>
+                  <View style={styles.activityIconContainer}>
+                    <Text style={styles.activityIcon}>✓</Text>
                   </View>
-                  <View style={styles.activityInfo}>
-                    <Text style={styles.activityTitle}>{activity.title}</Text>
-                    <Text style={styles.activitySubtitle}>{activity.subtitle}</Text>
-                    <View style={styles.activityMeta}>
-                      <View style={styles.activityDateBadge}>
-                        <Text style={styles.activityDateText}>{activity.date}</Text>
+                  <View style={styles.activityContent}>
+                    <Text style={styles.activityTitle}>
+                      {item.videos?.title || 'Video'}
+                    </Text>
+                    <Text style={styles.activitySubtitle}>
+                      Completed • {item.videos?.modules?.name || 'Module'}
+                    </Text>
+                    <View style={styles.activityFooter}>
+                      <View style={styles.activityBadge}>
+                        <Text style={styles.activityBadgeText}>
+                          {getTimeAgo(item.last_watched_at)}
+                        </Text>
                       </View>
-                      <Text style={styles.activityHours}>{activity.hours}</Text>
+                      <Text style={styles.activityDuration}>
+                        {formatDuration(item.watched_duration)}
+                      </Text>
                     </View>
                   </View>
                 </View>
-              </View>
               ))}
             </View>
           ) : (
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>No recent activity yet</Text>
-              <Text style={styles.emptyStateSubtext}>Start learning to see your progress here</Text>
+              <Text style={styles.emptyStateSubtext}>
+                Start learning to see your progress here
+              </Text>
             </View>
           )}
         </View>
 
         {/* Certificates */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Certificates</Text>
-          {userData.certificates.length > 0 ? (
+        {certificates.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Certificates</Text>
             <View style={styles.certificatesList}>
-              {userData.certificates.map((cert) => (
-              <View key={cert.id} style={styles.certificateCard}>
-                <View style={styles.certificateContent}>
-                  <View style={styles.certificateIcon}>
-                    <Text style={styles.certificateIconText}>🏆</Text>
+              {certificates.map((cert) => (
+                <View key={cert.id} style={styles.certificateCard}>
+                  <View style={styles.certificateLeft}>
+                    <View style={styles.certificateIcon}>
+                      <Text style={styles.certificateEmoji}>🏆</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.certificateTitle}>{cert.name}</Text>
+                      <Text style={styles.certificateDate}>
+                        Issued {cert.issuedDate}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.certificateInfo}>
-                    <Text style={styles.certificateTitle}>{cert.title}</Text>
-                  <Text style={styles.certificateIssued}>{cert.issued}</Text>
+                  <TouchableOpacity>
+                    <Text style={styles.downloadIcon}>⬇️</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Training Goals */}
+        <View style={styles.section}>
+          <View style={styles.goalsCard}>
+            <View style={styles.goalsHeader}>
+              <Text style={styles.goalsTitle}>Training Goals</Text>
+              <Text style={styles.goalsIcon}>🎯</Text>
+            </View>
+            
+            <View style={styles.goalsList}>
+              <View style={styles.goalItem}>
+                <View style={styles.goalHeader}>
+                  <Text style={styles.goalText}>Complete {goals.modulesTarget} modules</Text>
+                  <Text style={styles.goalValue}>
+                    {goals.modulesCompleted}/{goals.modulesTarget}
+                  </Text>
+                </View>
+                <View style={styles.goalProgressBar}>
+                  <View
+                    style={[
+                      styles.goalProgressFill,
+                      {
+                        width: `${(goals.modulesCompleted / goals.modulesTarget) * 100}%`,
+                      },
+                    ]}
+                  />
                 </View>
               </View>
-              <TouchableOpacity 
-                style={styles.certificateDownload}
-                onPress={() => handleDownloadCertificate(cert.id)}
-              >
-                <Text style={styles.certificateDownloadIcon}>⬇</Text>
-              </TouchableOpacity>
-            </View>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No certificates yet</Text>
-              <Text style={styles.emptyStateSubtext}>Complete modules to earn certificates</Text>
-            </View>
-          )}
-        </View>        {/* Goals Panel */}
-        <View style={styles.section}>
-          <View style={styles.goalsPanel}>
-            <View style={styles.goalsPanelHeader}>
-              <Text style={styles.goalsPanelTitle}>Training Goals</Text>
-              <Text style={styles.goalsPanelIcon}>🎯</Text>
-            </View>
-            <View style={styles.goalsList}>
-              {userData.goals.map((goal) => (
-                <View key={goal.id} style={styles.goalItem}>
-                  <View style={styles.goalHeader}>
-                    <Text style={styles.goalLabel}>{goal.label}</Text>
-                    <Text style={styles.goalValue}>
-                      {goal.current}/{goal.target}
-                    </Text>
-                  </View>
-                  <View style={styles.goalProgressBar}>
-                    <View
-                      style={[
-                        styles.goalProgress,
-                        { width: `${(goal.current / goal.target) * 100}%` },
-                      ]}
-                    />
-                  </View>
+
+              <View style={styles.goalItem}>
+                <View style={styles.goalHeader}>
+                  <Text style={styles.goalText}>{goals.hoursTarget} hours learning</Text>
+                  <Text style={styles.goalValue}>
+                    {goals.hoursCompleted}/{goals.hoursTarget}
+                  </Text>
                 </View>
-              ))}
+                <View style={styles.goalProgressBar}>
+                  <View
+                    style={[
+                      styles.goalProgressFill,
+                      {
+                        width: `${Math.min((goals.hoursCompleted / goals.hoursTarget) * 100, 100)}%`,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
             </View>
-            <TouchableOpacity style={styles.setGoalButton} onPress={handleSetNewGoal}>
+
+            <TouchableOpacity style={styles.setGoalButton}>
               <Text style={styles.setGoalButtonText}>Set New Goal</Text>
             </TouchableOpacity>
           </View>
         </View>
-        
-        {/* Bottom Padding for Tab Navigation */}
-        <View style={{ height: moderateScale(80) }} />
+
+        <View style={styles.bottomSpace} />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f9fafb',
   },
   loadingText: {
-    marginTop: moderateScale(16),
-    fontSize: moderateScale(16),
-    color: '#6b7280',
-  },
-  errorText: {
-    fontSize: moderateScale(16),
-    color: '#ef4444',
-    textAlign: 'center',
-    paddingHorizontal: scale(20),
-  },
-  emptyState: {
-    backgroundColor: '#ffffff',
-    borderRadius: moderateScale(8),
-    padding: moderateScale(24),
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-  },
-  emptyStateText: {
-    fontSize: moderateScale(16),
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: moderateScale(4),
-  },
-  emptyStateSubtext: {
+    marginTop: verticalScale(12),
     fontSize: moderateScale(14),
-    color: '#6b7280',
-    textAlign: 'center',
+    color: '#6B7280',
   },
   header: {
-    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(12),
-    paddingTop: Platform.OS === 'ios' ? verticalScale(50) : verticalScale(12),
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F3F4F6',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -388,53 +523,85 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  backButton: {
+    padding: scale(8),
+    marginLeft: scale(-8),
+  },
+  backIcon: {
+    fontSize: moderateScale(18),
+    color: '#6B7280',
+  },
   headerTitle: {
     fontSize: moderateScale(18),
     fontWeight: '600',
     color: '#111827',
+    marginLeft: scale(12),
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(8),
   },
   headerButton: {
-    padding: moderateScale(8),
+    padding: scale(8),
   },
-  headerIcon: {
-    fontSize: moderateScale(20),
-    color: '#6b7280',
+  headerButtonIcon: {
+    fontSize: moderateScale(18),
+    color: '#6B7280',
   },
   scrollView: {
     flex: 1,
   },
-  progressOverview: {
-    backgroundColor: '#ffffff',
+  progressSection: {
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(24),
     alignItems: 'center',
   },
   progressCircleContainer: {
+    position: 'relative',
     marginBottom: verticalScale(16),
   },
-  progressCircle: {
-    width: moderateScale(128),
-    height: moderateScale(128),
-    borderRadius: moderateScale(64),
-    borderWidth: moderateScale(8),
-    borderColor: '#6366f1',
+  circleContainer: {
+    width: scale(128),
+    height: scale(128),
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+  },
+  circleBackground: {
+    position: 'absolute',
+    width: scale(128),
+    height: scale(128),
+    borderRadius: scale(64),
+    borderWidth: 8,
+    borderColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  circleProgress: {
+    position: 'absolute',
+    width: scale(128),
+    height: scale(128),
+    borderRadius: scale(64),
+    borderWidth: 8,
+    borderColor: '#6366F1',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'transparent',
+  },
+  innerCircle: {
+    width: scale(112),
+    height: scale(112),
+    borderRadius: scale(56),
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   progressPercentage: {
     fontSize: moderateScale(24),
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: '#111827',
   },
   progressLabel: {
-    fontSize: moderateScale(12),
-    color: '#6b7280',
+    fontSize: moderateScale(11),
+    color: '#6B7280',
   },
   progressTitle: {
     fontSize: moderateScale(18),
@@ -444,46 +611,49 @@ const styles = StyleSheet.create({
   },
   progressSubtitle: {
     fontSize: moderateScale(14),
-    color: '#6b7280',
+    color: '#6B7280',
   },
-  statsSection: {
-    flexDirection: 'row',
-    backgroundColor: '#ffffff',
+  statsCard: {
+    backgroundColor: '#FFFFFF',
     marginHorizontal: scale(16),
     marginTop: verticalScale(-8),
-    borderRadius: moderateScale(8),
-    padding: moderateScale(16),
+    borderRadius: moderateScale(12),
+    padding: scale(16),
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 4,
+    elevation: 3,
     borderWidth: 1,
-    borderColor: '#f3f4f6',
+    borderColor: '#F3F4F6',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
   },
   statItem: {
-    flex: 1,
     alignItems: 'center',
   },
   statIcon: {
-    width: moderateScale(40),
-    height: moderateScale(40),
-    borderRadius: moderateScale(8),
+    width: scale(40),
+    height: scale(40),
+    borderRadius: moderateScale(10),
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: verticalScale(8),
   },
-  statIconText: {
+  statEmoji: {
     fontSize: moderateScale(20),
   },
   statValue: {
     fontSize: moderateScale(20),
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: '#111827',
   },
   statLabel: {
-    fontSize: moderateScale(12),
-    color: '#6b7280',
+    fontSize: moderateScale(11),
+    color: '#6B7280',
+    marginTop: verticalScale(2),
   },
   filterSection: {
     flexDirection: 'row',
@@ -495,42 +665,42 @@ const styles = StyleSheet.create({
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: moderateScale(8),
+    borderColor: '#E5E7EB',
+    borderRadius: moderateScale(10),
     paddingHorizontal: scale(12),
-    paddingVertical: verticalScale(8),
-    gap: scale(8),
+    paddingVertical: verticalScale(10),
   },
   filterIcon: {
     fontSize: moderateScale(14),
+    marginRight: scale(8),
   },
   filterText: {
     fontSize: moderateScale(14),
     color: '#374151',
+    marginRight: scale(8),
   },
   filterChevron: {
     fontSize: moderateScale(10),
-    color: '#9ca3af',
+    color: '#9CA3AF',
   },
   exportButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#6366f1',
-    borderRadius: moderateScale(8),
+    backgroundColor: '#6366F1',
+    borderRadius: moderateScale(10),
     paddingHorizontal: scale(12),
-    paddingVertical: verticalScale(8),
-    gap: scale(8),
+    paddingVertical: verticalScale(10),
   },
   exportIcon: {
     fontSize: moderateScale(14),
-    color: '#ffffff',
+    marginRight: scale(8),
   },
   exportText: {
     fontSize: moderateScale(14),
-    fontWeight: '500',
-    color: '#ffffff',
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   section: {
     paddingHorizontal: scale(16),
@@ -546,129 +716,140 @@ const styles = StyleSheet.create({
     gap: verticalScale(16),
   },
   activityCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: moderateScale(8),
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-    padding: moderateScale(16),
-  },
-  activityContent: {
     flexDirection: 'row',
-    gap: scale(12),
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    padding: scale(16),
   },
-  activityCheckIcon: {
-    width: moderateScale(32),
-    height: moderateScale(32),
-    borderRadius: moderateScale(16),
-    backgroundColor: '#dcfce7',
+  activityIconContainer: {
+    width: scale(32),
+    height: scale(32),
+    backgroundColor: '#D1FAE5',
+    borderRadius: scale(16),
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: scale(12),
     marginTop: verticalScale(4),
   },
-  activityCheckText: {
+  activityIcon: {
     fontSize: moderateScale(14),
-    color: '#16a34a',
+    color: '#10B981',
   },
-  activityInfo: {
+  activityContent: {
     flex: 1,
   },
   activityTitle: {
     fontSize: moderateScale(15),
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#111827',
     marginBottom: verticalScale(4),
   },
   activitySubtitle: {
     fontSize: moderateScale(14),
-    color: '#6b7280',
+    color: '#6B7280',
     marginBottom: verticalScale(8),
   },
-  activityMeta: {
+  activityFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  activityDateBadge: {
-    backgroundColor: '#f3f4f6',
+  activityBadge: {
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: scale(8),
     paddingVertical: verticalScale(4),
     borderRadius: moderateScale(4),
   },
-  activityDateText: {
-    fontSize: moderateScale(12),
+  activityBadgeText: {
+    fontSize: moderateScale(11),
     color: '#374151',
   },
-  activityHours: {
-    fontSize: moderateScale(12),
-    color: '#6b7280',
+  activityDuration: {
+    fontSize: moderateScale(11),
+    color: '#6B7280',
+  },
+  emptyState: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    padding: scale(32),
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: verticalScale(4),
+  },
+  emptyStateSubtext: {
+    fontSize: moderateScale(14),
+    color: '#6B7280',
+    textAlign: 'center',
   },
   certificatesList: {
     gap: verticalScale(12),
   },
   certificateCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: moderateScale(8),
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-    padding: moderateScale(16),
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    padding: scale(16),
   },
-  certificateContent: {
+  certificateLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: scale(12),
   },
   certificateIcon: {
-    width: moderateScale(40),
-    height: moderateScale(40),
-    borderRadius: moderateScale(8),
-    backgroundColor: '#fef3c7',
+    width: scale(40),
+    height: scale(40),
+    backgroundColor: '#FEF3C7',
+    borderRadius: moderateScale(10),
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: scale(12),
   },
-  certificateIconText: {
+  certificateEmoji: {
     fontSize: moderateScale(20),
-  },
-  certificateInfo: {
-    flex: 1,
   },
   certificateTitle: {
     fontSize: moderateScale(15),
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#111827',
-    marginBottom: verticalScale(2),
   },
-  certificateIssued: {
+  certificateDate: {
     fontSize: moderateScale(14),
-    color: '#6b7280',
+    color: '#6B7280',
+    marginTop: verticalScale(2),
   },
-  certificateDownload: {
-    padding: moderateScale(8),
+  downloadIcon: {
+    fontSize: moderateScale(18),
+    color: '#6366F1',
   },
-  certificateDownloadIcon: {
-    fontSize: moderateScale(20),
-    color: '#6366f1',
+  goalsCard: {
+    backgroundColor: '#6366F1',
+    borderRadius: moderateScale(12),
+    padding: scale(16),
   },
-  goalsPanel: {
-    backgroundColor: '#6366f1',
-    borderRadius: moderateScale(8),
-    padding: moderateScale(16),
-  },
-  goalsPanelHeader: {
+  goalsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: verticalScale(12),
   },
-  goalsPanelTitle: {
+  goalsTitle: {
     fontSize: moderateScale(16),
     fontWeight: '600',
-    color: '#ffffff',
+    color: '#FFFFFF',
   },
-  goalsPanelIcon: {
+  goalsIcon: {
     fontSize: moderateScale(20),
   },
   goalsList: {
@@ -676,43 +857,46 @@ const styles = StyleSheet.create({
     marginBottom: verticalScale(16),
   },
   goalItem: {
-    gap: verticalScale(4),
+    gap: verticalScale(6),
   },
   goalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: verticalScale(4),
+    alignItems: 'center',
   },
-  goalLabel: {
+  goalText: {
     fontSize: moderateScale(14),
-    color: '#ffffff',
+    color: '#FFFFFF',
   },
   goalValue: {
     fontSize: moderateScale(14),
-    color: '#ffffff',
+    color: '#FFFFFF',
   },
   goalProgressBar: {
     width: '100%',
-    height: moderateScale(8),
+    height: verticalScale(8),
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: moderateScale(4),
     overflow: 'hidden',
   },
-  goalProgress: {
+  goalProgressFill: {
     height: '100%',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     borderRadius: moderateScale(4),
   },
   setGoalButton: {
-    backgroundColor: '#ffffff',
-    paddingVertical: verticalScale(8),
-    borderRadius: moderateScale(8),
+    backgroundColor: '#FFFFFF',
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(10),
     alignItems: 'center',
   },
   setGoalButtonText: {
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(14),
     fontWeight: '600',
-    color: '#6366f1',
+    color: '#6366F1',
+  },
+  bottomSpace: {
+    height: verticalScale(20),
   },
 });
 

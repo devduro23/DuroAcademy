@@ -1,265 +1,236 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Image,
   Dimensions,
-  Platform,
   Modal,
-  ActivityIndicator,
   Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const { width, height } = Dimensions.get('window');
+import { supabase } from '../supabase-client';
 
 // Responsive helper functions
+const { width, height } = Dimensions.get('window');
 const scale = (size) => (width / 375) * size;
-const verticalScale = (size) => (height / 812) * size;
 const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
+const verticalScale = (size) => (height / 812) * size;
 
 const ProfileScreen = ({ navigation }) => {
-  const { logout } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [userProfile, setUserProfile] = useState(null);
+  const { user, signOut } = useAuth();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchUserProfile();
-  }, []);
-
-  const fetchUserProfile = async () => {
+  // Fetch user data from Supabase
+  const fetchUserData = async () => {
     try {
-      setLoading(true);
-      const storedProfile = await AsyncStorage.getItem('userProfile');
-      
-      if (storedProfile) {
-        setUserProfile(JSON.parse(storedProfile));
+      if (!user?.id) {
+        console.log('No user ID available');
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user data:', error);
+        Alert.alert('Error', 'Failed to load profile data');
       } else {
-        // Initialize with default profile data
-        const defaultProfile = {
-          name: 'Dev Dixit',
-          employeeId: 'EMP-2024-001',
-          department: 'Marketing Department',
-          email: 'dev.dixit@duro.com',
-          isVerified: true,
-          avatar: 'https://storage.googleapis.com/uxpilot-auth.appspot.com/avatars/avatar-1.jpg',
-          achievements: [
-            { id: 1, name: 'Top Learner', icon: '🏆', color: '#fef3c7', iconColor: '#f59e0b' },
-            { id: 2, name: 'Quick Start', icon: '🥇', color: '#dbeafe', iconColor: '#3b82f6' },
-            { id: 3, name: 'Consistent', icon: '⭐', color: '#dcfce7', iconColor: '#10b981' },
-            { id: 4, name: 'Certified', icon: '📜', color: '#e9d5ff', iconColor: '#a855f7' },
-          ],
-          stats: {
-            modulesCompleted: 12,
-            hoursWatched: 24.5,
-            quizzesTaken: 28,
-          },
-          quickLinks: [
-            { id: 1, title: 'My Bookmarks', subtitle: '8 saved items', icon: '🔖', color: '#e9d5ff', iconColor: '#a855f7' },
-            { id: 2, title: 'Downloaded Content', subtitle: '5 modules offline', icon: '⬇️', color: '#dcfce7', iconColor: '#10b981' },
-          ],
-        };
-        
-        await AsyncStorage.setItem('userProfile', JSON.stringify(defaultProfile));
-        setUserProfile(defaultProfile);
+        setUserData(data);
+        console.log('User data loaded:', data);
       }
     } catch (error) {
-      console.error('Error fetching user profile:', error);
+      console.error('Exception fetching user data:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  useEffect(() => {
+    fetchUserData();
+  }, [user]);
+
+  // Pull to refresh
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchUserData();
   };
 
   const handleLogout = async () => {
     try {
-      await logout();
+      await signOut();
       setLogoutModalVisible(false);
-      // Navigation will be handled by AuthContext
     } catch (error) {
-      console.error('Error logging out:', error);
-      Alert.alert('Error', 'Failed to logout. Please try again.');
+      console.error('Logout error:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
     }
   };
 
-  const handleEditProfile = () => {
-    setEditModalVisible(false);
-    // TODO: Navigate to edit profile screen
-    Alert.alert('Edit Profile', 'Edit profile functionality coming soon!');
+  // Get user initials for avatar
+  const getUserInitials = () => {
+    if (userData?.full_name) {
+      const names = userData.full_name.split(' ');
+      if (names.length >= 2) {
+        return `${names[0][0]}${names[1][0]}`.toUpperCase();
+      }
+      return userData.full_name[0].toUpperCase();
+    }
+    if (userData?.email) {
+      return userData.email[0].toUpperCase();
+    }
+    if (user?.email) {
+      return user.email[0].toUpperCase();
+    }
+    return 'U';
   };
 
-  const handleMyProgress = () => {
-    // Navigate to My Learning tab
-    navigation.navigate('MyLearning');
-  };
-
-  const handleSettings = () => {
-    // TODO: Navigate to settings screen
-    Alert.alert('Settings', 'Settings functionality coming soon!');
-  };
-
-  const handleBookmarks = () => {
-    // TODO: Navigate to bookmarks screen
-    Alert.alert('My Bookmarks', 'Bookmarks functionality coming soon!');
-  };
-
-  const handleDownloads = () => {
-    // TODO: Navigate to downloads screen
-    Alert.alert('Downloaded Content', 'Downloads functionality coming soon!');
+  // Get display name
+  const getDisplayName = () => {
+    return userData?.full_name || userData?.email?.split('@')[0] || user?.email?.split('@')[0] || 'User Name';
   };
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6366f1" />
+      <SafeAreaView style={[styles.container, styles.loadingContainer]} edges={['top']}>
+        <ActivityIndicator size="large" color="#DC2626" />
         <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
-    );
-  }
-
-  if (!userProfile) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>Unable to load profile</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={() => navigation.goBack()}>
+            <Text style={styles.headerIcon}>◀</Text>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile</Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerIcon}>↗️</Text>
+            <Text style={styles.headerIcon}>⤴</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerIcon}>⋮</Text>
+            <Text style={styles.headerIcon}>⋯</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#DC2626']}
+            tintColor="#DC2626"
+          />
+        }>
+        
         {/* User Profile Section */}
         <View style={styles.profileSection}>
           <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {userProfile.name.split(' ')[0].charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            {userProfile.isVerified && (
-              <View style={styles.verifiedBadge}>
-                <Text style={styles.verifiedIcon}>✓</Text>
+            {userData?.avatar_url ? (
+              <Image 
+                source={{ uri: userData.avatar_url }} 
+                style={styles.avatarImage}
+              />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {getUserInitials()}
+                </Text>
               </View>
             )}
+            <View style={styles.verifiedBadge}>
+              <Text style={styles.verifiedIcon}>✓</Text>
+            </View>
           </View>
-          <Text style={styles.userName}>{userProfile.name}</Text>
-          <Text style={styles.employeeId}>{userProfile.employeeId}</Text>
-          <Text style={styles.department}>{userProfile.department}</Text>
-          <Text style={styles.email}>{userProfile.email}</Text>
-        </View>
-
-        {/* Achievement Badges */}
-        <View style={styles.achievementsSection}>
-          <Text style={styles.achievementsTitle}>Recent Achievements</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.achievementsList}>
-            {userProfile.achievements.map((achievement) => (
-              <View key={achievement.id} style={styles.achievementItem}>
-                <View style={[styles.achievementIcon, { backgroundColor: achievement.color }]}>
-                  <Text style={styles.achievementIconText}>{achievement.icon}</Text>
-                </View>
-                <Text style={styles.achievementName}>{achievement.name}</Text>
-              </View>
-            ))}
-          </ScrollView>
+          <Text style={styles.userName}>
+            {getDisplayName()}
+          </Text>
+          <Text style={styles.employeeId}>
+            {userData?.employee_id || 'EMP-2024-001'}
+          </Text>
+          <Text style={styles.department}>
+            {userData?.department || 'Not Assigned'}
+          </Text>
+          <Text style={styles.userEmail}>
+            {userData?.email || user?.email || 'user@company.com'}
+          </Text>
         </View>
 
         {/* Action Buttons */}
-        <View style={styles.actionButtons}>
+        <View style={styles.actionSection}>
           <TouchableOpacity 
-            style={styles.editButton}
-            onPress={() => setEditModalVisible(true)}
-          >
-            <Text style={styles.editIcon}>✏️</Text>
-            <Text style={styles.editButtonText}>Edit Profile</Text>
+            style={styles.primaryButton}
+            onPress={() => navigation.navigate('EditProfile')}>
+            <Text style={styles.buttonIconLarge}>✏️</Text>
+            <Text style={styles.primaryButtonText}>Edit Profile</Text>
           </TouchableOpacity>
-
-          <View style={styles.gridButtons}>
-            <TouchableOpacity style={styles.gridButton} onPress={handleMyProgress}>
-              <Text style={styles.gridButtonIcon}>📈</Text>
-              <Text style={styles.gridButtonText}>My Progress</Text>
+          
+          <View style={styles.secondaryButtons}>
+            <TouchableOpacity style={styles.secondaryButton}>
+              <Text style={styles.buttonIconSecondary}>📈</Text>
+              <Text style={styles.secondaryButtonText}>My Progress</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.gridButton} onPress={handleSettings}>
-              <Text style={styles.gridButtonIcon}>⚙️</Text>
-              <Text style={styles.gridButtonText}>Settings</Text>
+            <TouchableOpacity 
+              style={styles.secondaryButton}
+              onPress={() => navigation.navigate('Settings')}
+            >
+              <Text style={styles.buttonIconSecondary}>⚙️</Text>
+              <Text style={styles.secondaryButtonText}>Settings</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Quick Stats */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Stats</Text>
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <View style={[styles.statIcon, { backgroundColor: '#dbeafe' }]}>
-                <Text style={styles.statIconText}>📖</Text>
-              </View>
-              <Text style={styles.statValue}>{userProfile.stats.modulesCompleted}</Text>
-              <Text style={styles.statLabel}>Modules Completed</Text>
-            </View>
-            <View style={styles.statItem}>
-              <View style={[styles.statIcon, { backgroundColor: '#dcfce7' }]}>
-                <Text style={styles.statIconText}>⏰</Text>
-              </View>
-              <Text style={styles.statValue}>{userProfile.stats.hoursWatched}</Text>
-              <Text style={styles.statLabel}>Hours Watched</Text>
-            </View>
-            <View style={styles.statItem}>
-              <View style={[styles.statIcon, { backgroundColor: '#fed7aa' }]}>
-                <Text style={styles.statIconText}>❓</Text>
-              </View>
-              <Text style={styles.statValue}>{userProfile.stats.quizzesTaken}</Text>
-              <Text style={styles.statLabel}>Quizzes Taken</Text>
-            </View>
           </View>
         </View>
 
         {/* Quick Links */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Links</Text>
-          <View style={styles.quickLinks}>
-            <TouchableOpacity style={styles.quickLinkItem} onPress={handleBookmarks}>
-              <View style={styles.quickLinkLeft}>
-                <View style={[styles.quickLinkIcon, { backgroundColor: '#e9d5ff' }]}>
-                  <Text style={styles.quickLinkIconText}>🔖</Text>
+        <View style={styles.linksSection}>
+          <Text style={styles.sectionHeaderTitle}>Quick Links</Text>
+          <View style={styles.linksContainer}>
+            <TouchableOpacity style={styles.linkCard}>
+              <View style={styles.linkLeft}>
+                <View style={[styles.linkIcon, { backgroundColor: '#E9D5FF' }]}>
+                  <Text style={styles.linkEmojiLarge}>🔖</Text>
                 </View>
-                <View style={styles.quickLinkInfo}>
-                  <Text style={styles.quickLinkTitle}>My Bookmarks</Text>
-                  <Text style={styles.quickLinkSubtitle}>8 saved items</Text>
+                <View style={styles.linkText}>
+                  <Text style={styles.linkTitle}>My Bookmarks</Text>
+                  <Text style={styles.linkSubtitle}>8 saved items</Text>
                 </View>
               </View>
-              <Text style={styles.quickLinkChevron}>›</Text>
+              <Text style={styles.chevronLarge}>›</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity style={styles.quickLinkItem} onPress={handleDownloads}>
-              <View style={styles.quickLinkLeft}>
-                <View style={[styles.quickLinkIcon, { backgroundColor: '#dcfce7' }]}>
-                  <Text style={styles.quickLinkIconText}>⬇️</Text>
+            
+            <TouchableOpacity style={styles.linkCard}>
+              <View style={styles.linkLeft}>
+                <View style={[styles.linkIcon, { backgroundColor: '#D1FAE5' }]}>
+                  <Text style={styles.linkEmojiLarge}>💾</Text>
                 </View>
-                <View style={styles.quickLinkInfo}>
-                  <Text style={styles.quickLinkTitle}>Downloaded Content</Text>
-                  <Text style={styles.quickLinkSubtitle}>5 modules offline</Text>
+                <View style={styles.linkText}>
+                  <Text style={styles.linkTitle}>Downloaded Content</Text>
+                  <Text style={styles.linkSubtitle}>5 modules offline</Text>
                 </View>
               </View>
-              <Text style={styles.quickLinkChevron}>›</Text>
+              <Text style={styles.chevronLarge}>›</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -268,55 +239,21 @@ const ProfileScreen = ({ navigation }) => {
         <View style={styles.signOutSection}>
           <TouchableOpacity 
             style={styles.signOutButton}
-            onPress={() => setLogoutModalVisible(true)}
-          >
-            <Text style={styles.signOutIcon}>🚪</Text>
+            onPress={() => setLogoutModalVisible(true)}>
+            <Text style={styles.signOutIconLarge}>🚪</Text>
             <Text style={styles.signOutText}>Sign Out</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Bottom Padding for Tab Navigation */}
-        <View style={{ height: moderateScale(80) }} />
+        <View style={styles.bottomSpace} />
       </ScrollView>
-
-      {/* Edit Profile Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={editModalVisible}
-        onRequestClose={() => setEditModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Edit Profile</Text>
-            <Text style={styles.modalMessage}>
-              Are you sure you want to edit your profile information?
-            </Text>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.modalCancelButton}
-                onPress={() => setEditModalVisible(false)}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalConfirmButton}
-                onPress={handleEditProfile}
-              >
-                <Text style={styles.modalConfirmText}>Confirm</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {/* Logout Modal */}
       <Modal
         animationType="fade"
         transparent={true}
         visible={logoutModalVisible}
-        onRequestClose={() => setLogoutModalVisible(false)}
-      >
+        onRequestClose={() => setLogoutModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Sign Out</Text>
@@ -324,58 +261,47 @@ const ProfileScreen = ({ navigation }) => {
               Are you sure you want to sign out of your account?
             </Text>
             <View style={styles.modalButtons}>
-              <TouchableOpacity
+              <TouchableOpacity 
                 style={styles.modalCancelButton}
-                onPress={() => setLogoutModalVisible(false)}
-              >
+                onPress={() => setLogoutModalVisible(false)}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalLogoutButton}
-                onPress={handleLogout}
-              >
-                <Text style={styles.modalLogoutText}>Sign Out</Text>
+              <TouchableOpacity 
+                style={[styles.modalConfirmButton, { backgroundColor: '#EF4444' }]}
+                onPress={handleLogout}>
+                <Text style={styles.modalConfirmText}>Sign Out</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
   },
   loadingContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f9fafb',
   },
   loadingText: {
-    marginTop: moderateScale(16),
+    marginTop: verticalScale(16),
     fontSize: moderateScale(16),
-    color: '#6b7280',
-  },
-  errorText: {
-    fontSize: moderateScale(16),
-    color: '#ef4444',
-    textAlign: 'center',
-    paddingHorizontal: scale(20),
+    color: '#6B7280',
   },
   header: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(12),
-    paddingTop: Platform.OS === 'ios' ? verticalScale(50) : verticalScale(12),
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F3F4F6',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -386,29 +312,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  headerButton: {
+    padding: scale(8),
+  },
   headerTitle: {
     fontSize: moderateScale(18),
     fontWeight: '600',
     color: '#111827',
+    marginLeft: scale(12),
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(8),
-  },
-  headerButton: {
-    padding: moderateScale(8),
-  },
-  headerIcon: {
-    fontSize: moderateScale(20),
-    color: '#6b7280',
   },
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: verticalScale(20),
+  },
   profileSection: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: scale(16),
+    backgroundColor: '#FFFFFF',
     paddingVertical: verticalScale(24),
     alignItems: 'center',
   },
@@ -417,242 +341,236 @@ const styles = StyleSheet.create({
     marginBottom: verticalScale(16),
   },
   avatar: {
-    width: moderateScale(96),
-    height: moderateScale(96),
-    borderRadius: moderateScale(48),
-    borderWidth: 4,
-    borderColor: '#ffffff',
-    backgroundColor: '#6366f1',
-    justifyContent: 'center',
+    width: scale(96),
+    height: scale(96),
+    borderRadius: scale(48),
+    backgroundColor: '#DC2626',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  avatarImage: {
+    width: scale(96),
+    height: scale(96),
+    borderRadius: scale(48),
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
   },
   avatarText: {
     fontSize: moderateScale(40),
-    fontWeight: '700',
-    color: '#ffffff',
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
   verifiedBadge: {
     position: 'absolute',
-    bottom: moderateScale(-4),
-    right: moderateScale(-4),
-    width: moderateScale(32),
-    height: moderateScale(32),
-    backgroundColor: '#10b981',
-    borderRadius: moderateScale(16),
-    borderWidth: 2,
-    borderColor: '#ffffff',
-    justifyContent: 'center',
+    bottom: 0,
+    right: -4,
+    width: scale(32),
+    height: scale(32),
+    borderRadius: scale(16),
+    backgroundColor: '#10B981',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   verifiedIcon: {
-    fontSize: moderateScale(14),
-    color: '#ffffff',
+    fontSize: moderateScale(16),
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  headerIcon: {
+    fontSize: moderateScale(24),
+    color: '#1F2937',
+    fontWeight: 'bold',
+  },
+  buttonIconLarge: {
+    fontSize: moderateScale(20),
+    marginRight: scale(10),
+  },
+  buttonIconSecondary: {
+    fontSize: moderateScale(22),
+    marginBottom: verticalScale(4),
+  },
+  statEmojiLarge: {
+    fontSize: moderateScale(32),
+  },
+  linkEmojiLarge: {
+    fontSize: moderateScale(28),
+  },
+  chevronLarge: {
+    fontSize: moderateScale(28),
+    color: '#9CA3AF',
+    fontWeight: '300',
+  },
+  signOutIconLarge: {
+    fontSize: moderateScale(20),
+    marginRight: scale(10),
   },
   userName: {
     fontSize: moderateScale(20),
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: '#111827',
     marginBottom: verticalScale(4),
   },
   employeeId: {
     fontSize: moderateScale(14),
-    color: '#6b7280',
+    color: '#6B7280',
     marginBottom: verticalScale(4),
   },
   department: {
     fontSize: moderateScale(14),
-    color: '#6b7280',
+    color: '#9CA3AF',
     marginBottom: verticalScale(8),
   },
-  email: {
+  userEmail: {
     fontSize: moderateScale(14),
-    color: '#6366f1',
+    color: '#DC2626',
   },
-  achievementsSection: {
-    backgroundColor: '#ffffff',
-    marginHorizontal: scale(16),
-    marginTop: verticalScale(-8),
-    borderRadius: moderateScale(8),
-    padding: moderateScale(16),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-  },
-  achievementsTitle: {
-    fontSize: moderateScale(14),
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: verticalScale(12),
-  },
-  achievementsList: {
-    flexDirection: 'row',
-  },
-  achievementItem: {
-    alignItems: 'center',
-    marginRight: scale(12),
-  },
-  achievementIcon: {
-    width: moderateScale(48),
-    height: moderateScale(48),
-    borderRadius: moderateScale(24),
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: verticalScale(4),
-  },
-  achievementIconText: {
-    fontSize: moderateScale(24),
-  },
-  achievementName: {
-    fontSize: moderateScale(12),
-    color: '#6b7280',
-    textAlign: 'center',
-  },
-  actionButtons: {
+  actionSection: {
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(16),
-    gap: verticalScale(12),
+    marginTop: verticalScale(8),
   },
-  editButton: {
-    backgroundColor: '#6366f1',
-    borderRadius: moderateScale(8),
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(16),
+  primaryButton: {
+    backgroundColor: '#DC2626',
+    borderRadius: moderateScale(12),
+    paddingVertical: verticalScale(14),
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: scale(8),
+    justifyContent: 'center',
+    marginBottom: verticalScale(12),
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  editIcon: {
+  primaryButtonText: {
+    color: '#FFFFFF',
     fontSize: moderateScale(16),
-    color: '#ffffff',
+    fontWeight: '600',
+    marginLeft: scale(8),
   },
-  editButtonText: {
-    fontSize: moderateScale(16),
-    fontWeight: '500',
-    color: '#ffffff',
-  },
-  gridButtons: {
+  secondaryButtons: {
     flexDirection: 'row',
     gap: scale(12),
   },
-  gridButton: {
+  secondaryButton: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: moderateScale(8),
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(16),
+    borderColor: '#E5E7EB',
+    borderRadius: moderateScale(12),
+    paddingVertical: verticalScale(14),
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: scale(8),
+    justifyContent: 'center',
   },
-  gridButtonIcon: {
-    fontSize: moderateScale(16),
-  },
-  gridButtonText: {
-    fontSize: moderateScale(14),
-    fontWeight: '500',
+  secondaryButtonText: {
     color: '#374151',
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    marginLeft: scale(8),
   },
-  section: {
+  statsSection: {
     paddingHorizontal: scale(16),
     paddingBottom: verticalScale(16),
   },
-  sectionTitle: {
+  sectionHeaderTitle: {
     fontSize: moderateScale(18),
     fontWeight: '600',
     color: '#111827',
     marginBottom: verticalScale(16),
   },
-  statsContainer: {
-    backgroundColor: '#ffffff',
-    borderRadius: moderateScale(8),
+  statsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    padding: scale(16),
     borderWidth: 1,
-    borderColor: '#f3f4f6',
-    padding: moderateScale(16),
+    borderColor: '#F3F4F6',
+  },
+  statsGrid: {
     flexDirection: 'row',
+    justifyContent: 'space-around',
   },
   statItem: {
-    flex: 1,
     alignItems: 'center',
+    flex: 1,
   },
   statIcon: {
-    width: moderateScale(40),
-    height: moderateScale(40),
-    borderRadius: moderateScale(8),
-    justifyContent: 'center',
+    width: scale(40),
+    height: scale(40),
+    borderRadius: moderateScale(10),
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: verticalScale(8),
-  },
-  statIconText: {
-    fontSize: moderateScale(20),
   },
   statValue: {
     fontSize: moderateScale(20),
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: '#111827',
+    marginBottom: verticalScale(4),
   },
   statLabel: {
-    fontSize: moderateScale(12),
-    color: '#6b7280',
+    fontSize: moderateScale(11),
+    color: '#9CA3AF',
     textAlign: 'center',
+    lineHeight: moderateScale(14),
   },
-  quickLinks: {
+  linksSection: {
+    paddingHorizontal: scale(16),
+    paddingBottom: verticalScale(16),
+  },
+  linksContainer: {
     gap: verticalScale(12),
   },
-  quickLinkItem: {
-    backgroundColor: '#ffffff',
+  linkCard: {
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#f3f4f6',
-    borderRadius: moderateScale(8),
-    padding: moderateScale(16),
+    borderColor: '#F3F4F6',
+    borderRadius: moderateScale(12),
+    padding: scale(16),
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
   },
-  quickLinkLeft: {
+  linkLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: scale(12),
   },
-  quickLinkIcon: {
-    width: moderateScale(40),
-    height: moderateScale(40),
-    borderRadius: moderateScale(8),
-    justifyContent: 'center',
+  linkIcon: {
+    width: scale(40),
+    height: scale(40),
+    borderRadius: moderateScale(10),
     alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: scale(12),
   },
-  quickLinkIconText: {
-    fontSize: moderateScale(20),
-  },
-  quickLinkInfo: {
+  linkText: {
     flex: 1,
   },
-  quickLinkTitle: {
+  linkTitle: {
     fontSize: moderateScale(15),
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#111827',
     marginBottom: verticalScale(2),
   },
-  quickLinkSubtitle: {
-    fontSize: moderateScale(14),
-    color: '#6b7280',
-  },
-  quickLinkChevron: {
-    fontSize: moderateScale(24),
-    color: '#9ca3af',
+  linkSubtitle: {
+    fontSize: moderateScale(13),
+    color: '#9CA3AF',
   },
   signOutSection: {
     paddingHorizontal: scale(16),
@@ -660,24 +578,24 @@ const styles = StyleSheet.create({
   },
   signOutButton: {
     borderWidth: 2,
-    borderColor: '#ef4444',
-    borderRadius: moderateScale(8),
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(16),
+    borderColor: '#EF4444',
+    borderRadius: moderateScale(12),
+    paddingVertical: verticalScale(14),
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: scale(8),
-    backgroundColor: '#ffffff',
-  },
-  signOutIcon: {
-    fontSize: moderateScale(16),
+    justifyContent: 'center',
   },
   signOutText: {
+    color: '#EF4444',
     fontSize: moderateScale(16),
-    fontWeight: '500',
-    color: '#ef4444',
+    fontWeight: '600',
+    marginLeft: scale(8),
   },
+  bottomSpace: {
+    height: verticalScale(20),
+  },
+  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -686,11 +604,11 @@ const styles = StyleSheet.create({
     padding: scale(16),
   },
   modalContent: {
-    backgroundColor: '#ffffff',
-    borderRadius: moderateScale(8),
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    padding: scale(24),
     width: '100%',
-    maxWidth: scale(350),
-    padding: moderateScale(24),
+    maxWidth: scale(400),
   },
   modalTitle: {
     fontSize: moderateScale(18),
@@ -700,7 +618,7 @@ const styles = StyleSheet.create({
   },
   modalMessage: {
     fontSize: moderateScale(14),
-    color: '#6b7280',
+    color: '#6B7280',
     marginBottom: verticalScale(24),
     lineHeight: moderateScale(20),
   },
@@ -710,39 +628,27 @@ const styles = StyleSheet.create({
   },
   modalCancelButton: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
-    borderRadius: moderateScale(8),
-    paddingVertical: verticalScale(8),
+    backgroundColor: '#F3F4F6',
+    borderRadius: moderateScale(10),
+    paddingVertical: verticalScale(12),
     alignItems: 'center',
   },
   modalCancelText: {
-    fontSize: moderateScale(16),
-    fontWeight: '500',
     color: '#374151',
+    fontSize: moderateScale(15),
+    fontWeight: '600',
   },
   modalConfirmButton: {
     flex: 1,
-    backgroundColor: '#6366f1',
-    borderRadius: moderateScale(8),
-    paddingVertical: verticalScale(8),
+    backgroundColor: '#DC2626',
+    borderRadius: moderateScale(10),
+    paddingVertical: verticalScale(12),
     alignItems: 'center',
   },
   modalConfirmText: {
-    fontSize: moderateScale(16),
-    fontWeight: '500',
-    color: '#ffffff',
-  },
-  modalLogoutButton: {
-    flex: 1,
-    backgroundColor: '#ef4444',
-    borderRadius: moderateScale(8),
-    paddingVertical: verticalScale(8),
-    alignItems: 'center',
-  },
-  modalLogoutText: {
-    fontSize: moderateScale(16),
-    fontWeight: '500',
-    color: '#ffffff',
+    color: '#FFFFFF',
+    fontSize: moderateScale(15),
+    fontWeight: '600',
   },
 });
 

@@ -1,0 +1,15 @@
+# Supabase Configuration
+
+[project]
+# Project ID from your Supabase dashboard
+id = "yuqeafhejdawshsmrebn"
+
+[api]
+enabled = true
+port = 54321
+
+[functions]
+enabled = true
+
+[functions.get-video-playback-url]
+verify_jwt = false

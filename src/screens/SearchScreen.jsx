@@ -7,284 +7,152 @@ import {
   TextInput,
   TouchableOpacity,
   Dimensions,
-  Platform,
+  Modal,
   ActivityIndicator,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const { width, height } = Dimensions.get('window');
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { supabase } from '../supabase-client';
 
 // Responsive helper functions
+const { width, height } = Dimensions.get('window');
 const scale = (size) => (width / 375) * size;
-const verticalScale = (size) => (height / 812) * size;
 const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
+const verticalScale = (size) => (height / 812) * size;
 
 const SearchScreen = ({ navigation }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [recentSearches, setRecentSearches] = useState(['data security', 'project management', 'communication']);
+  const [modules, setModules] = useState([]);
+  const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(true);
-  const [recentSearches, setRecentSearches] = useState([]);
-  const [searchResults, setSearchResults] = useState({
-    modules: [],
-    docs: [],
-    podcasts: [],
-    quizzes: [],
-  });
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState([]);
+  const [selectedTypes, setSelectedTypes] = useState([]);
+  const [showResults, setShowResults] = useState(false);
 
-  // Available content database
-  const contentDatabase = {
-    modules: [
-      {
-        id: 1,
-        title: 'Advanced Data Security',
-        category: 'Security',
-        duration: '3.5 hours',
-        status: 'complete',
-        icon: '🛡️',
-        color: '#dbeafe',
-      },
-      {
-        id: 2,
-        title: 'Data Analytics Fundamentals',
-        category: 'Analytics',
-        duration: '4.2 hours',
-        status: 'inProgress',
-        icon: '📈',
-        color: '#e9d5ff',
-      },
-      {
-        id: 3,
-        title: 'Database Management',
-        category: 'Technical',
-        duration: '2.8 hours',
-        status: 'notStarted',
-        icon: '🗄️',
-        color: '#dcfce7',
-      },
-      {
-        id: 4,
-        title: 'Plywood Manufacturing',
-        category: 'Product Training',
-        duration: '3.0 hours',
-        status: 'inProgress',
-        icon: '🪵',
-        color: '#fef3c7',
-      },
-      {
-        id: 5,
-        title: 'Sales Fundamentals',
-        category: 'Sales Training',
-        duration: '2.5 hours',
-        status: 'complete',
-        icon: '💼',
-        color: '#dbeafe',
-      },
-      {
-        id: 6,
-        title: 'Communication Skills',
-        category: 'General Training',
-        duration: '2.0 hours',
-        status: 'complete',
-        icon: '💬',
-        color: '#fed7aa',
-      },
-      {
-        id: 7,
-        title: 'Leadership Essentials',
-        category: 'Leadership',
-        duration: '3.5 hours',
-        status: 'notStarted',
-        icon: '👔',
-        color: '#e9d5ff',
-      },
-      {
-        id: 8,
-        title: 'Project Management Basics',
-        category: 'Management',
-        duration: '4.0 hours',
-        status: 'inProgress',
-        icon: '📊',
-        color: '#dbeafe',
-      },
-    ],
-    docs: [
-      {
-        id: 1,
-        title: 'Data Privacy Guidelines',
-        category: 'Compliance',
-        type: 'PDF',
-        status: 'read',
-        icon: '📄',
-        color: '#fed7aa',
-      },
-      {
-        id: 2,
-        title: 'Security Best Practices',
-        category: 'Security',
-        type: 'Document',
-        status: 'unread',
-        icon: '📋',
-        color: '#dbeafe',
-      },
-    ],
-    podcasts: [
-      {
-        id: 1,
-        title: 'Data Security in 2024',
-        duration: '45 min',
-        status: 'listening',
-        icon: '🎙️',
-        color: '#dcfce7',
-      },
-      {
-        id: 2,
-        title: 'Mann Ki Baat Duro Ke Sath',
-        duration: '30 min',
-        status: 'notStarted',
-        icon: '🎙️',
-        color: '#dcfce7',
-      },
-    ],
-    quizzes: [
-      {
-        id: 1,
-        title: 'Data Protection Quiz',
-        questions: '10 questions',
-        status: 'passed',
-        icon: '❓',
-        color: '#e9d5ff',
-      },
-    ],
-  };
-
+  // Popular tags
   const popularTags = ['#leadership', '#cybersecurity', '#agile', '#analytics', '#teamwork'];
 
   useEffect(() => {
-    loadRecentSearches();
-  }, []);
-
-  const loadRecentSearches = async () => {
-    try {
-      const searches = await AsyncStorage.getItem('recentSearches');
-      if (searches) {
-        setRecentSearches(JSON.parse(searches));
-      } else {
-        setRecentSearches(['data security', 'project management', 'communication']);
-      }
-    } catch (error) {
-      console.error('Error loading recent searches:', error);
+    if (searchQuery.trim().length > 0) {
+      searchContent();
+    } else {
+      setShowResults(false);
     }
-  };
+  }, [searchQuery]);
 
-  const saveRecentSearch = async (query) => {
-    try {
-      const updatedSearches = [query, ...recentSearches.filter(s => s !== query)].slice(0, 5);
-      setRecentSearches(updatedSearches);
-      await AsyncStorage.setItem('recentSearches', JSON.stringify(updatedSearches));
-    } catch (error) {
-      console.error('Error saving recent search:', error);
-    }
-  };
-
-  const removeRecentSearch = async (query) => {
-    try {
-      const updatedSearches = recentSearches.filter(s => s !== query);
-      setRecentSearches(updatedSearches);
-      await AsyncStorage.setItem('recentSearches', JSON.stringify(updatedSearches));
-    } catch (error) {
-      console.error('Error removing recent search:', error);
-    }
-  };
-
-  const handleSearch = (query) => {
-    setSearchQuery(query);
-    
-    if (query.trim().length === 0) {
-      setShowSuggestions(true);
-      setSearchResults({ modules: [], docs: [], podcasts: [], quizzes: [] });
-      return;
-    }
-
-    setShowSuggestions(false);
+  const searchContent = async () => {
     setLoading(true);
+    setShowResults(true);
+    try {
+      // Search modules
+      const { data: modulesData, error: modulesError } = await supabase
+        .from('modules')
+        .select('*')
+        .ilike('title', `%${searchQuery}%`)
+        .limit(10);
 
-    // Simulate search delay
-    setTimeout(() => {
-      const lowerQuery = query.toLowerCase();
-      
-      const results = {
-        modules: contentDatabase.modules.filter(
-          item => 
-            item.title.toLowerCase().includes(lowerQuery) ||
-            item.category.toLowerCase().includes(lowerQuery)
-        ),
-        docs: contentDatabase.docs.filter(
-          item => 
-            item.title.toLowerCase().includes(lowerQuery) ||
-            item.category.toLowerCase().includes(lowerQuery)
-        ),
-        podcasts: contentDatabase.podcasts.filter(
-          item => item.title.toLowerCase().includes(lowerQuery)
-        ),
-        quizzes: contentDatabase.quizzes.filter(
-          item => item.title.toLowerCase().includes(lowerQuery)
-        ),
-      };
+      if (modulesError) throw modulesError;
+      setModules(modulesData || []);
 
-      setSearchResults(results);
+      // Search videos
+      const { data: videosData, error: videosError } = await supabase
+        .from('videos')
+        .select('*')
+        .ilike('title', `%${searchQuery}%`)
+        .limit(10);
+
+      if (videosError) throw videosError;
+      setVideos(videosData || []);
+    } catch (error) {
+      console.error('Search error:', error);
+    } finally {
       setLoading(false);
-
-      if (query.trim().length > 0) {
-        saveRecentSearch(query.trim());
-      }
-    }, 300);
-  };
-
-  const handleTagPress = (tag) => {
-    const query = tag.replace('#', '');
-    setSearchQuery(query);
-    handleSearch(query);
+    }
   };
 
   const handleModulePress = (module) => {
-    // Navigate to module details
-    navigation.navigate('Home', {
-      screen: 'ModuleDetails',
-      params: { moduleName: module.title, categoryName: module.category }
+    navigation.navigate('ModuleDetails', { 
+      moduleId: module.id,
+      moduleName: module.title 
     });
   };
 
-  const getStatusInfo = (status) => {
-    switch (status) {
-      case 'complete':
-        return { color: '#10b981', label: 'Complete' };
-      case 'inProgress':
-        return { color: '#f59e0b', label: 'In Progress' };
-      case 'passed':
-        return { color: '#10b981', label: 'Passed' };
-      case 'listening':
-        return { color: '#f59e0b', label: 'Listening' };
-      case 'read':
-        return { color: '#10b981', label: 'Read' };
-      case 'unread':
-        return { color: '#9ca3af', label: 'Unread' };
-      default:
-        return { color: '#9ca3af', label: 'Not Started' };
+  const handleVideoPress = (video) => {
+    navigation.navigate('VideoPlayer', { 
+      lessonId: video.id,
+      lessonTitle: video.title,
+      moduleId: video.module_id 
+    });
+  };
+
+  const removeRecentSearch = (search) => {
+    setRecentSearches(recentSearches.filter(s => s !== search));
+  };
+
+  const addRecentSearch = (search) => {
+    if (search.trim() && !recentSearches.includes(search.trim())) {
+      setRecentSearches([search.trim(), ...recentSearches.slice(0, 4)]);
     }
   };
 
-  const hasResults = 
-    searchResults.modules.length > 0 ||
-    searchResults.docs.length > 0 ||
-    searchResults.podcasts.length > 0 ||
-    searchResults.quizzes.length > 0;
+  const handleSearchSubmit = () => {
+    if (searchQuery.trim()) {
+      addRecentSearch(searchQuery);
+      searchContent();
+    }
+  };
+
+  const getCategoryIcon = (category) => {
+    const icons = {
+      security: '🛡️',
+      analytics: '📊',
+      leadership: '👑',
+      technical: '💻',
+      compliance: '✅',
+    };
+    return icons[category?.toLowerCase()] || '📖';
+  };
+
+  const getCategoryColor = (category) => {
+    const colors = {
+      security: { bg: '#DBEAFE', text: '#3B82F6' },
+      analytics: { bg: '#E9D5FF', text: '#A855F7' },
+      leadership: { bg: '#FED7AA', text: '#F97316' },
+      technical: { bg: '#D1FAE5', text: '#10B981' },
+      compliance: { bg: '#DBEAFE', text: '#3B82F6' },
+    };
+    return colors[category?.toLowerCase()] || { bg: '#DBEAFE', text: '#3B82F6' };
+  };
+
+  const formatDuration = (minutes) => {
+    if (!minutes) return 'N/A';
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={() => navigation.goBack()}>
+            <Text style={styles.headerIcon}>◀</Text>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Search</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={() => setFilterVisible(true)}>
+            <Text style={styles.headerIcon}>☰</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerButton}>
+            <Text style={styles.headerIcon}>⋯</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -294,279 +162,312 @@ const SearchScreen = ({ navigation }) => {
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search modules, docs, podcasts..."
-            placeholderTextColor="#9ca3af"
+            placeholder="Search modules, videos..."
             value={searchQuery}
-            onChangeText={handleSearch}
+            onChangeText={setSearchQuery}
+            onSubmitEditing={handleSearchSubmit}
             returnKeyType="search"
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity 
-              style={styles.clearButton}
-              onPress={() => handleSearch('')}
-            >
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
               <Text style={styles.clearIcon}>✕</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {/* Keyboard Shortcuts Hint */}
-        <View style={styles.keyboardHints}>
-          <View style={styles.keyboardHint}>
+        <View style={styles.shortcutHint}>
+          <View style={styles.shortcutItem}>
             <View style={styles.kbd}>
-              <Text style={styles.kbdText}>⌘</Text>
+              <Text style={styles.kbdText}>⏎</Text>
             </View>
-            <View style={styles.kbd}>
-              <Text style={styles.kbdText}>K</Text>
-            </View>
-            <Text style={styles.hintText}>Quick search</Text>
-          </View>
-          <View style={styles.keyboardHint}>
-            <View style={styles.kbd}>
-              <Text style={styles.kbdText}>↵</Text>
-            </View>
-            <Text style={styles.hintText}>Search</Text>
+            <Text style={styles.shortcutText}>Search</Text>
           </View>
         </View>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Suggestions */}
-        {showSuggestions && (
-          <View style={styles.suggestionsSection}>
-            {/* Recent Searches */}
-            {recentSearches.length > 0 && (
+        {!showResults ? (
+          <>
+            {/* Recent Searches & Popular Tags */}
+            <View style={styles.suggestionsSection}>
+              {recentSearches.length > 0 && (
+                <View style={styles.suggestionBlock}>
+                  <Text style={styles.suggestionTitle}>Recent Searches</Text>
+                  <View style={styles.tagsContainer}>
+                    {recentSearches.map((search, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.recentTag}
+                        onPress={() => setSearchQuery(search)}>
+                        <Text style={styles.recentTagText}>{search}</Text>
+                        <TouchableOpacity onPress={() => removeRecentSearch(search)}>
+                          <Text style={styles.removeTagIcon}>✕</Text>
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
               <View style={styles.suggestionBlock}>
-                <Text style={styles.suggestionTitle}>Recent Searches</Text>
-                <View style={styles.tagContainer}>
-                  {recentSearches.map((search, index) => (
+                <Text style={styles.suggestionTitle}>Popular Tags</Text>
+                <View style={styles.tagsContainer}>
+                  {popularTags.map((tag, index) => (
                     <TouchableOpacity
                       key={index}
-                      style={styles.recentTag}
-                      onPress={() => {
-                        setSearchQuery(search);
-                        handleSearch(search);
-                      }}
-                    >
-                      <Text style={styles.recentTagText}>{search}</Text>
-                      <TouchableOpacity onPress={() => removeRecentSearch(search)}>
-                        <Text style={styles.removeIcon}>✕</Text>
-                      </TouchableOpacity>
+                      style={styles.popularTag}
+                      onPress={() => setSearchQuery(tag.replace('#', ''))}>
+                      <Text style={styles.popularTagText}>{tag}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               </View>
-            )}
+            </View>
+          </>
+        ) : (
+          <>
+            {/* Search Results */}
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#6366F1" />
+                <Text style={styles.loadingText}>Searching...</Text>
+              </View>
+            ) : (
+              <>
+                {modules.length === 0 && videos.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <View style={styles.emptyIcon}>
+                      <Text style={styles.emptyIconText}>🔍</Text>
+                    </View>
+                    <Text style={styles.emptyTitle}>No results found</Text>
+                    <Text style={styles.emptySubtitle}>
+                      Try searching for something else
+                    </Text>
+                    <TouchableOpacity onPress={() => setSearchQuery('')}>
+                      <Text style={styles.clearSearchText}>Clear search</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    {/* Modules Results */}
+                    {modules.length > 0 && (
+                      <View style={styles.resultsSection}>
+                        <View style={styles.resultsSectionHeader}>
+                          <View style={styles.resultsTitleRow}>
+                            <Text style={styles.resultsIcon}>📖</Text>
+                            <Text style={styles.resultsTitle}>Modules</Text>
+                            <View style={styles.resultsBadge}>
+                              <Text style={styles.resultsBadgeText}>{modules.length}</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <View style={styles.resultsContent}>
+                          {modules.map((module) => (
+                            <TouchableOpacity
+                              key={module.id}
+                              style={styles.resultItem}
+                              onPress={() => handleModulePress(module)}>
+                              <View style={[
+                                styles.resultItemIcon,
+                                { backgroundColor: getCategoryColor(module.category).bg }
+                              ]}>
+                                <Text style={styles.resultItemIconText}>
+                                  {getCategoryIcon(module.category)}
+                                </Text>
+                              </View>
+                              <View style={styles.resultItemContent}>
+                                <Text style={styles.resultItemTitle} numberOfLines={1}>
+                                  {module.title}
+                                </Text>
+                                <Text style={styles.resultItemSubtitle} numberOfLines={1}>
+                                  {module.category || 'Module'} • {module.lessons_count || 0} lessons
+                                </Text>
+                              </View>
+                              <View style={styles.resultItemStatus}>
+                                <View style={[
+                                  styles.statusDot,
+                                  { backgroundColor: module.completed ? '#10B981' : '#9CA3AF' }
+                                ]} />
+                                <Text style={styles.statusText}>
+                                  {module.completed ? 'Complete' : 'Available'}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    )}
 
-            {/* Popular Tags */}
-            <View style={styles.suggestionBlock}>
-              <Text style={styles.suggestionTitle}>Popular Tags</Text>
-              <View style={styles.tagContainer}>
-                {popularTags.map((tag, index) => (
+                    {/* Videos Results */}
+                    {videos.length > 0 && (
+                      <View style={styles.resultsSection}>
+                        <View style={styles.resultsSectionHeader}>
+                          <View style={styles.resultsTitleRow}>
+                            <Text style={styles.resultsIcon}>🎥</Text>
+                            <Text style={styles.resultsTitle}>Videos</Text>
+                            <View style={styles.resultsBadge}>
+                              <Text style={styles.resultsBadgeText}>{videos.length}</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <View style={styles.resultsContent}>
+                          {videos.map((video) => (
+                            <TouchableOpacity
+                              key={video.id}
+                              style={styles.resultItem}
+                              onPress={() => handleVideoPress(video)}>
+                              <View style={[
+                                styles.resultItemIcon,
+                                { backgroundColor: '#E9D5FF' }
+                              ]}>
+                                <Text style={styles.resultItemIconText}>▶️</Text>
+                              </View>
+                              <View style={styles.resultItemContent}>
+                                <Text style={styles.resultItemTitle} numberOfLines={1}>
+                                  {video.title}
+                                </Text>
+                                <Text style={styles.resultItemSubtitle} numberOfLines={1}>
+                                  Video • {formatDuration(video.duration)}
+                                </Text>
+                              </View>
+                              <View style={styles.resultItemStatus}>
+                                <View style={[
+                                  styles.statusDot,
+                                  { backgroundColor: video.completed ? '#10B981' : '#9CA3AF' }
+                                ]} />
+                                <Text style={styles.statusText}>
+                                  {video.completed ? 'Watched' : 'New'}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        <View style={styles.bottomSpace} />
+      </ScrollView>
+
+      {/* Filter Modal */}
+      <Modal
+        visible={filterVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setFilterVisible(false)}>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setFilterVisible(false)}>
+          <View style={styles.filterPanel}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.filterTitle}>Filters</Text>
+              <TouchableOpacity onPress={() => setFilterVisible(false)}>
+                <Text style={styles.closeFilterIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.filterContent}>
+              {/* Category Filter */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterSectionTitle}>Category</Text>
+                {['Security', 'Analytics', 'Leadership', 'Technical'].map((category) => (
                   <TouchableOpacity
-                    key={index}
-                    style={styles.popularTag}
-                    onPress={() => handleTagPress(tag)}
-                  >
-                    <Text style={styles.popularTagText}>{tag}</Text>
+                    key={category}
+                    style={styles.filterOption}
+                    onPress={() => {
+                      if (selectedCategories.includes(category)) {
+                        setSelectedCategories(selectedCategories.filter(c => c !== category));
+                      } else {
+                        setSelectedCategories([...selectedCategories, category]);
+                      }
+                    }}>
+                    <View style={[
+                      styles.checkbox,
+                      selectedCategories.includes(category) && styles.checkboxChecked
+                    ]}>
+                      {selectedCategories.includes(category) && (
+                        <Text style={styles.checkmark}>✓</Text>
+                      )}
+                    </View>
+                    <Text style={styles.filterOptionText}>{category}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {/* Content Type Filter */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterSectionTitle}>Content Type</Text>
+                {['Videos', 'Modules', 'Documents', 'Quizzes'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={styles.filterOption}
+                    onPress={() => {
+                      if (selectedTypes.includes(type)) {
+                        setSelectedTypes(selectedTypes.filter(t => t !== type));
+                      } else {
+                        setSelectedTypes([...selectedTypes, type]);
+                      }
+                    }}>
+                    <View style={[
+                      styles.checkbox,
+                      selectedTypes.includes(type) && styles.checkboxChecked
+                    ]}>
+                      {selectedTypes.includes(type) && (
+                        <Text style={styles.checkmark}>✓</Text>
+                      )}
+                    </View>
+                    <Text style={styles.filterOptionText}>{type}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={styles.filterFooter}>
+              <TouchableOpacity
+                style={styles.clearFilterButton}
+                onPress={() => {
+                  setSelectedCategories([]);
+                  setSelectedTypes([]);
+                }}>
+                <Text style={styles.clearFilterButtonText}>Clear All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.applyButton}
+                onPress={() => {
+                  setFilterVisible(false);
+                  searchContent();
+                }}>
+                <Text style={styles.applyButtonText}>Apply Filters</Text>
+              </TouchableOpacity>
             </View>
           </View>
-        )}
-
-        {/* Loading */}
-        {loading && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6366f1" />
-            <Text style={styles.loadingText}>Searching...</Text>
-          </View>
-        )}
-
-        {/* Search Results */}
-        {!showSuggestions && !loading && hasResults && (
-          <View style={styles.resultsContainer}>
-            {/* Modules */}
-            {searchResults.modules.length > 0 && (
-              <View style={styles.resultSection}>
-                <View style={styles.resultHeader}>
-                  <Text style={styles.resultIcon}>📖</Text>
-                  <Text style={styles.resultTitle}>Modules</Text>
-                  <View style={styles.resultBadge}>
-                    <Text style={styles.resultBadgeText}>{searchResults.modules.length}</Text>
-                  </View>
-                </View>
-                <View style={styles.resultList}>
-                  {searchResults.modules.map((module) => {
-                    const statusInfo = getStatusInfo(module.status);
-                    return (
-                      <TouchableOpacity
-                        key={module.id}
-                        style={styles.resultItem}
-                        onPress={() => handleModulePress(module)}
-                      >
-                        <View style={[styles.resultItemIcon, { backgroundColor: module.color }]}>
-                          <Text style={styles.resultItemIconText}>{module.icon}</Text>
-                        </View>
-                        <View style={styles.resultItemInfo}>
-                          <Text style={styles.resultItemTitle}>{module.title}</Text>
-                          <Text style={styles.resultItemSubtitle}>
-                            {module.category} • {module.duration}
-                          </Text>
-                        </View>
-                        <View style={styles.resultItemStatus}>
-                          <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
-                          <Text style={styles.statusText}>{statusInfo.label}</Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            )}
-
-            {/* Docs */}
-            {searchResults.docs.length > 0 && (
-              <View style={styles.resultSection}>
-                <View style={styles.resultHeader}>
-                  <Text style={styles.resultIcon}>📄</Text>
-                  <Text style={styles.resultTitle}>Documentation</Text>
-                  <View style={styles.resultBadge}>
-                    <Text style={styles.resultBadgeText}>{searchResults.docs.length}</Text>
-                  </View>
-                </View>
-                <View style={styles.resultList}>
-                  {searchResults.docs.map((doc) => {
-                    const statusInfo = getStatusInfo(doc.status);
-                    return (
-                      <TouchableOpacity key={doc.id} style={styles.resultItem}>
-                        <View style={[styles.resultItemIcon, { backgroundColor: doc.color }]}>
-                          <Text style={styles.resultItemIconText}>{doc.icon}</Text>
-                        </View>
-                        <View style={styles.resultItemInfo}>
-                          <Text style={styles.resultItemTitle}>{doc.title}</Text>
-                          <Text style={styles.resultItemSubtitle}>
-                            {doc.type} • {doc.category}
-                          </Text>
-                        </View>
-                        <View style={styles.resultItemStatus}>
-                          <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
-                          <Text style={styles.statusText}>{statusInfo.label}</Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            )}
-
-            {/* Podcasts */}
-            {searchResults.podcasts.length > 0 && (
-              <View style={styles.resultSection}>
-                <View style={styles.resultHeader}>
-                  <Text style={styles.resultIcon}>🎙️</Text>
-                  <Text style={styles.resultTitle}>Podcasts</Text>
-                  <View style={styles.resultBadge}>
-                    <Text style={styles.resultBadgeText}>{searchResults.podcasts.length}</Text>
-                  </View>
-                </View>
-                <View style={styles.resultList}>
-                  {searchResults.podcasts.map((podcast) => {
-                    const statusInfo = getStatusInfo(podcast.status);
-                    return (
-                      <TouchableOpacity key={podcast.id} style={styles.resultItem}>
-                        <View style={[styles.resultItemIcon, { backgroundColor: podcast.color }]}>
-                          <Text style={styles.resultItemIconText}>{podcast.icon}</Text>
-                        </View>
-                        <View style={styles.resultItemInfo}>
-                          <Text style={styles.resultItemTitle}>{podcast.title}</Text>
-                          <Text style={styles.resultItemSubtitle}>Podcast • {podcast.duration}</Text>
-                        </View>
-                        <View style={styles.resultItemStatus}>
-                          <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
-                          <Text style={styles.statusText}>{statusInfo.label}</Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            )}
-
-            {/* Quizzes */}
-            {searchResults.quizzes.length > 0 && (
-              <View style={styles.resultSection}>
-                <View style={styles.resultHeader}>
-                  <Text style={styles.resultIcon}>❓</Text>
-                  <Text style={styles.resultTitle}>Quizzes</Text>
-                  <View style={styles.resultBadge}>
-                    <Text style={styles.resultBadgeText}>{searchResults.quizzes.length}</Text>
-                  </View>
-                </View>
-                <View style={styles.resultList}>
-                  {searchResults.quizzes.map((quiz) => {
-                    const statusInfo = getStatusInfo(quiz.status);
-                    return (
-                      <TouchableOpacity key={quiz.id} style={styles.resultItem}>
-                        <View style={[styles.resultItemIcon, { backgroundColor: quiz.color }]}>
-                          <Text style={styles.resultItemIconText}>{quiz.icon}</Text>
-                        </View>
-                        <View style={styles.resultItemInfo}>
-                          <Text style={styles.resultItemTitle}>{quiz.title}</Text>
-                          <Text style={styles.resultItemSubtitle}>Quiz • {quiz.questions}</Text>
-                        </View>
-                        <View style={styles.resultItemStatus}>
-                          <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
-                          <Text style={styles.statusText}>{statusInfo.label}</Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Empty State */}
-        {!showSuggestions && !loading && !hasResults && searchQuery.trim().length > 0 && (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Text style={styles.emptyIconText}>🔍</Text>
-            </View>
-            <Text style={styles.emptyTitle}>No results found</Text>
-            <Text style={styles.emptySubtitle}>
-              Try removing some filters or search for something else
-            </Text>
-            <TouchableOpacity style={styles.clearFiltersButton} onPress={() => handleSearch('')}>
-              <Text style={styles.clearFiltersText}>Clear search</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Bottom Padding for Tab Navigation */}
-        <View style={{ height: moderateScale(80) }} />
-      </ScrollView>
-    </View>
+        </TouchableOpacity>
+      </Modal>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
   },
   header: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(12),
-    paddingTop: Platform.OS === 'ios' ? verticalScale(50) : verticalScale(12),
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F3F4F6',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -577,30 +478,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  headerButton: {
+    padding: scale(8),
+  },
+  headerIcon: {
+    fontSize: moderateScale(22),
+    color: '#1F2937',
+  },
   headerTitle: {
     fontSize: moderateScale(18),
     fontWeight: '600',
     color: '#111827',
+    marginLeft: scale(12),
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   searchSection: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(16),
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F3F4F6',
   },
   searchInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#F9FAFB',
+    borderRadius: moderateScale(12),
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: moderateScale(8),
+    borderColor: '#E5E7EB',
     paddingHorizontal: scale(12),
-    height: moderateScale(44),
+    paddingVertical: verticalScale(12),
   },
   searchIcon: {
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(18),
     marginRight: scale(8),
   },
   searchInput: {
@@ -609,218 +522,320 @@ const styles = StyleSheet.create({
     color: '#111827',
     padding: 0,
   },
-  clearButton: {
-    padding: moderateScale(4),
-  },
   clearIcon: {
     fontSize: moderateScale(16),
-    color: '#9ca3af',
+    color: '#9CA3AF',
+    padding: scale(4),
   },
-  keyboardHints: {
-    flexDirection: 'row',
-    marginTop: verticalScale(8),
-    gap: scale(16),
-  },
-  keyboardHint: {
+  shortcutHint: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(4),
+    marginTop: verticalScale(8),
+  },
+  shortcutItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   kbd: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: scale(6),
     paddingVertical: verticalScale(2),
     borderRadius: moderateScale(4),
+    marginRight: scale(4),
   },
   kbdText: {
-    fontSize: moderateScale(12),
-    color: '#374151',
+    fontSize: moderateScale(11),
+    color: '#6B7280',
+    fontWeight: '500',
   },
-  hintText: {
-    fontSize: moderateScale(12),
-    color: '#6b7280',
+  shortcutText: {
+    fontSize: moderateScale(11),
+    color: '#6B7280',
   },
   scrollView: {
     flex: 1,
   },
   suggestionsSection: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(16),
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F3F4F6',
   },
   suggestionBlock: {
     marginBottom: verticalScale(16),
   },
   suggestionTitle: {
-    fontSize: moderateScale(14),
-    fontWeight: '500',
+    fontSize: moderateScale(13),
+    fontWeight: '600',
     color: '#111827',
     marginBottom: verticalScale(12),
   },
-  tagContainer: {
+  tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: scale(8),
   },
   recentTag: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: scale(12),
     paddingVertical: verticalScale(6),
     borderRadius: moderateScale(16),
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(8),
   },
   recentTagText: {
-    fontSize: moderateScale(14),
+    fontSize: moderateScale(13),
     color: '#374151',
+    marginRight: scale(6),
   },
-  removeIcon: {
-    fontSize: moderateScale(12),
-    color: '#9ca3af',
+  removeTagIcon: {
+    fontSize: moderateScale(10),
+    color: '#9CA3AF',
   },
   popularTag: {
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    backgroundColor: '#EEF2FF',
     paddingHorizontal: scale(12),
     paddingVertical: verticalScale(6),
     borderRadius: moderateScale(16),
   },
   popularTagText: {
-    fontSize: moderateScale(14),
-    color: '#6366f1',
+    fontSize: moderateScale(13),
+    color: '#6366F1',
+    fontWeight: '500',
   },
   loadingContainer: {
-    paddingVertical: verticalScale(40),
+    paddingVertical: verticalScale(60),
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: verticalScale(16),
-    fontSize: moderateScale(16),
-    color: '#6b7280',
+    marginTop: verticalScale(12),
+    fontSize: moderateScale(14),
+    color: '#6B7280',
   },
-  resultsContainer: {
-    paddingBottom: verticalScale(16),
+  emptyState: {
+    paddingVertical: verticalScale(60),
+    paddingHorizontal: scale(16),
+    alignItems: 'center',
   },
-  resultSection: {
-    backgroundColor: '#ffffff',
+  emptyIcon: {
+    width: scale(64),
+    height: scale(64),
+    borderRadius: scale(32),
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: verticalScale(16),
+  },
+  emptyIconText: {
+    fontSize: moderateScale(28),
+  },
+  emptyTitle: {
+    fontSize: moderateScale(18),
+    fontWeight: '600',
+    color: '#111827',
     marginBottom: verticalScale(8),
   },
-  resultHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  emptySubtitle: {
+    fontSize: moderateScale(14),
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: verticalScale(16),
+  },
+  clearSearchText: {
+    color: '#6366F1',
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+  },
+  resultsSection: {
+    backgroundColor: '#FFFFFF',
+    marginBottom: verticalScale(8),
+  },
+  resultsSectionHeader: {
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(12),
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-    gap: scale(8),
+    borderBottomColor: '#F3F4F6',
   },
-  resultIcon: {
+  resultsTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  resultsIcon: {
     fontSize: moderateScale(16),
+    marginRight: scale(8),
   },
-  resultTitle: {
+  resultsTitle: {
     fontSize: moderateScale(14),
     fontWeight: '600',
     color: '#111827',
   },
-  resultBadge: {
-    backgroundColor: '#f3f4f6',
+  resultsBadge: {
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: scale(8),
     paddingVertical: verticalScale(2),
     borderRadius: moderateScale(12),
+    marginLeft: scale(8),
   },
-  resultBadgeText: {
-    fontSize: moderateScale(12),
-    color: '#6b7280',
+  resultsBadgeText: {
+    fontSize: moderateScale(11),
+    color: '#6B7280',
+    fontWeight: '500',
   },
-  resultList: {
-    borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
+  resultsContent: {
+    paddingVertical: verticalScale(4),
   },
   resultItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(12),
-    gap: scale(12),
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F9FAFB',
   },
   resultItemIcon: {
-    width: moderateScale(40),
-    height: moderateScale(40),
-    borderRadius: moderateScale(8),
-    justifyContent: 'center',
+    width: scale(40),
+    height: scale(40),
+    borderRadius: moderateScale(10),
     alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: scale(12),
   },
   resultItemIconText: {
     fontSize: moderateScale(20),
   },
-  resultItemInfo: {
+  resultItemContent: {
     flex: 1,
   },
   resultItemTitle: {
-    fontSize: moderateScale(15),
+    fontSize: moderateScale(14),
     fontWeight: '500',
     color: '#111827',
     marginBottom: verticalScale(2),
   },
   resultItemSubtitle: {
-    fontSize: moderateScale(14),
-    color: '#6b7280',
+    fontSize: moderateScale(12),
+    color: '#6B7280',
   },
   resultItemStatus: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(6),
   },
   statusDot: {
-    width: moderateScale(8),
-    height: moderateScale(8),
-    borderRadius: moderateScale(4),
+    width: scale(6),
+    height: scale(6),
+    borderRadius: scale(3),
+    marginRight: scale(4),
   },
   statusText: {
-    fontSize: moderateScale(12),
-    color: '#6b7280',
+    fontSize: moderateScale(11),
+    color: '#6B7280',
   },
-  emptyState: {
+  bottomSpace: {
+    height: verticalScale(20),
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  filterPanel: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: moderateScale(20),
+    borderTopRightRadius: moderateScale(20),
+    maxHeight: '80%',
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: scale(16),
-    paddingVertical: verticalScale(48),
-    alignItems: 'center',
+    paddingVertical: verticalScale(16),
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
-  emptyIcon: {
-    width: moderateScale(64),
-    height: moderateScale(64),
-    backgroundColor: '#f3f4f6',
-    borderRadius: moderateScale(32),
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: verticalScale(16),
-  },
-  emptyIconText: {
-    fontSize: moderateScale(32),
-  },
-  emptyTitle: {
+  filterTitle: {
     fontSize: moderateScale(18),
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#111827',
-    marginBottom: verticalScale(8),
   },
-  emptySubtitle: {
-    fontSize: moderateScale(14),
-    color: '#6b7280',
-    textAlign: 'center',
-    marginBottom: verticalScale(16),
+  closeFilterIcon: {
+    fontSize: moderateScale(24),
+    color: '#6B7280',
+    padding: scale(4),
   },
-  clearFiltersButton: {
+  filterContent: {
     paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(16),
+  },
+  filterSection: {
+    marginBottom: verticalScale(24),
+  },
+  filterSectionTitle: {
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: verticalScale(12),
+  },
+  filterOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: verticalScale(8),
   },
-  clearFiltersText: {
-    fontSize: moderateScale(16),
-    fontWeight: '500',
-    color: '#6366f1',
+  checkbox: {
+    width: scale(20),
+    height: scale(20),
+    borderRadius: moderateScale(4),
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    marginRight: scale(12),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#6366F1',
+    borderColor: '#6366F1',
+  },
+  checkmark: {
+    color: '#FFFFFF',
+    fontSize: moderateScale(12),
+    fontWeight: 'bold',
+  },
+  filterOptionText: {
+    fontSize: moderateScale(14),
+    color: '#374151',
+  },
+  filterFooter: {
+    flexDirection: 'row',
+    paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(16),
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: scale(12),
+  },
+  clearFilterButton: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(10),
+    alignItems: 'center',
+  },
+  clearFilterButtonText: {
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    color: '#374151',
+  },
+  applyButton: {
+    flex: 1,
+    backgroundColor: '#6366F1',
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(10),
+    alignItems: 'center',
+  },
+  applyButtonText: {
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
 

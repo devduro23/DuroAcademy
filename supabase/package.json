@@ -1,0 +1,17 @@
+{
+  "name": "supabase-functions",
+  "version": "1.0.0",
+  "description": "Supabase Edge Functions for Duro Academy",
+  "scripts": {
+    "deploy": "supabase functions deploy",
+    "deploy:video": "supabase functions deploy get-video-playback-url",
+    "serve": "supabase functions serve",
+    "serve:video": "supabase functions serve get-video-playback-url",
+    "logs": "supabase functions logs get-video-playback-url",
+    "login": "supabase login",
+    "link": "supabase link --project-ref yuqeafhejdawshsmrebn"
+  },
+  "dependencies": {
+    "react-native-video": "^6.17.0"
+  }
+}

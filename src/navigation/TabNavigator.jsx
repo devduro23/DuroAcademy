@@ -1,10 +1,14 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, Text, StyleSheet, Platform } from 'react-native';
+
+// Navigation
 import HomeStackNavigator from './HomeStackNavigator';
-import SearchScreen from '../screens/SearchScreen';
+import ProfileStackNavigator from './ProfileStackNavigator';
+import SearchStackNavigator from './SearchStackNavigator';
+
+// Screens
 import MyLearningScreen from '../screens/MyLearningScreen';
-import ProfileScreen from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -34,20 +38,26 @@ const TabNavigator = () => {
         name="Home"
         component={HomeStackNavigator}
         options={{
-          tabBarIcon: ({ color, focused }) => (
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ focused, color }) => (
             <View style={styles.iconContainer}>
-              <Text style={[styles.icon, { color }]}>🏠</Text>
+              <Text style={[styles.icon, { color }]}>
+                {focused ? '🏠' : '🏠'}
+              </Text>
             </View>
           ),
         }}
       />
       <Tab.Screen
         name="Search"
-        component={SearchScreen}
+        component={SearchStackNavigator}
         options={{
-          tabBarIcon: ({ color, focused }) => (
+          tabBarLabel: 'Search',
+          tabBarIcon: ({ focused, color }) => (
             <View style={styles.iconContainer}>
-              <Text style={[styles.icon, { color }]}>🔍</Text>
+              <Text style={[styles.icon, { color }]}>
+                {focused ? '🔍' : '🔍'}
+              </Text>
             </View>
           ),
         }}
@@ -57,20 +67,25 @@ const TabNavigator = () => {
         component={MyLearningScreen}
         options={{
           tabBarLabel: 'My Learning',
-          tabBarIcon: ({ color, focused }) => (
+          tabBarIcon: ({ focused, color }) => (
             <View style={styles.iconContainer}>
-              <Text style={[styles.icon, { color }]}>📚</Text>
+              <Text style={[styles.icon, { color }]}>
+                {focused ? '📚' : '📚'}
+              </Text>
             </View>
           ),
         }}
       />
       <Tab.Screen
         name="Profile"
-        component={ProfileScreen}
+        component={ProfileStackNavigator}
         options={{
-          tabBarIcon: ({ color, focused }) => (
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ focused, color }) => (
             <View style={styles.iconContainer}>
-              <Text style={[styles.icon, { color }]}>👤</Text>
+              <Text style={[styles.icon, { color }]}>
+                {focused ? '👤' : '👤'}
+              </Text>
             </View>
           ),
         }}
@@ -85,7 +100,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   icon: {
-    fontSize: 24,
+    fontSize: 20,
   },
 });
 

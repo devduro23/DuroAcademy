@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,543 +7,548 @@ import {
   Image,
   TouchableOpacity,
   Dimensions,
-  Platform,
+  ActivityIndicator,
+  RefreshControl,
+  ImageBackground,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabase-client';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
+const scale = (size) => (width / 375) * size;
+const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
+const verticalScale = (size) => (height / 812) * size;
 
 const HomeScreen = ({ navigation }) => {
-  const [selectedCategory, setSelectedCategory] = useState(null);
+  const { user } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // State
+  const [featuredModule, setFeaturedModule] = useState(null);
+  const [continueWatching, setContinueWatching] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const featuredModules = [
-    {
-      id: 1,
-      title: 'Advanced Product Training',
-      subtitle: 'Master our latest product features',
-      image: 'https://storage.googleapis.com/uxpilot-auth.appspot.com/be0da6fc62-657f0c42edf63e6544c5.png',
-      badge: 'New',
-      badgeColor: '#10b981',
-    },
-    {
-      id: 2,
-      title: 'Sales Excellence Program',
-      subtitle: 'Boost your sales performance',
-      image: 'https://storage.googleapis.com/uxpilot-auth.appspot.com/8e4dabfd2f-4f3a4c51b29b8a9b6721.png',
-      badge: 'Popular',
-      badgeColor: '#3b82f6',
-    },
-  ];
+  // Get user name
+  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
 
-  const continueLearning = [
-    {
-      id: 1,
-      title: 'Customer Service Excellence',
-      subtitle: '3 of 4 lessons completed',
-      progress: 75,
-    },
-    {
-      id: 2,
-      title: 'Digital Marketing Basics',
-      subtitle: '2 of 5 lessons completed',
-      progress: 45,
-    },
-  ];
+  // Fetch data
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
 
-  const recommended = [
-    {
-      id: 1,
-      title: 'Leadership Fundamentals',
-      subtitle: 'Build essential leadership skills',
-      image: 'https://storage.googleapis.com/uxpilot-auth.appspot.com/0a178268f1-9fe62a99a1e9b65dd1aa.png',
-      rating: 4.8,
-      duration: '2h 30m',
-      stars: 5,
-    },
-    {
-      id: 2,
-      title: 'Time Management Mastery',
-      subtitle: 'Maximize your productivity',
-      image: 'https://storage.googleapis.com/uxpilot-auth.appspot.com/9301531c27-daf31a1993f1d1155956.png',
-      rating: 4.6,
-      duration: '1h 45m',
-      stars: 4,
-    },
-    {
-      id: 3,
-      title: 'Effective Communication',
-      subtitle: 'Improve your communication skills',
-      image: 'https://storage.googleapis.com/uxpilot-auth.appspot.com/c4456d8d02-7e77d66d7ffe5681e87a.png',
-      rating: 4.9,
-      duration: '3h 15m',
-      stars: 5,
-    },
-  ];
+      // Fetch categories
+      const { data: categoriesData, error: categoriesError } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name', { ascending: true });
 
-  const categories = [
-    { id: 1, name: 'Product Training' },
-    { id: 2, name: 'Sales Training' },
-    { id: 3, name: 'General Training' },
-    { id: 4, name: 'Podcast' },
-  ];
+      if (!categoriesError && categoriesData) {
+        setCategories(categoriesData);
+      }
 
-  const handleCategoryPress = (category) => {
-    setSelectedCategory(category.id);
-    navigation.navigate('CategoryDetails', { categoryName: category.name });
+      // Fetch featured module (first module)
+      const { data: modulesData, error: modulesError } = await supabase
+        .from('modules')
+        .select('*')
+        .limit(1)
+        .single();
+
+      if (!modulesError && modulesData) {
+        setFeaturedModule(modulesData);
+      }
+
+      // Fetch recent notifications
+      const { data: notificationsData, error: notificationsError } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(3);
+
+      if (!notificationsError && notificationsData) {
+        setNotifications(notificationsData);
+      }
+
+      // Fetch last incomplete video (continue watching)
+      const { data: incompleteVideos, error: progressError } = await supabase
+        .from('user_video_progress')
+        .select(`
+          *,
+          videos (
+            id,
+            title,
+            thumbnail_url,
+            duration,
+            module_id,
+            modules (
+              name
+            )
+          )
+        `)
+        .eq('user_id', user?.id)
+        .eq('completed', false)
+        .gt('watched_duration', 0)
+        .order('last_watched_at', { ascending: false })
+        .limit(1);
+
+      if (!progressError && incompleteVideos && incompleteVideos.length > 0) {
+        const lastVideo = incompleteVideos[0];
+        const progressPercent = lastVideo.videos?.duration 
+          ? Math.round((lastVideo.watched_duration / lastVideo.videos.duration) * 100)
+          : 0;
+
+        setContinueWatching({
+          videoId: lastVideo.videos?.id,
+          moduleId: lastVideo.videos?.module_id,
+          category: lastVideo.videos?.modules?.name || 'General',
+          title: lastVideo.videos?.title || 'Video',
+          progress: progressPercent,
+          image: lastVideo.videos?.thumbnail_url || 'https://via.placeholder.com/400x200',
+          watchedDuration: lastVideo.watched_duration,
+        });
+      } else {
+        setContinueWatching(null);
+      }
+
+    } catch (error) {
+      console.error('Error fetching home data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchData().finally(() => setRefreshing(false));
+  }, [fetchData]);
+
+  // Category icons
+  const getCategoryIcon = (categoryName) => {
+    const icons = {
+      'General': '📚',
+      'Podcast': '🎙️',
+      'Product': '📦',
+      'Sales': '📈',
+      'Sales Training': '📈',
+    };
+    return icons[categoryName] || '📁';
   };
 
-  const renderStars = (count) => {
+  // Category icons with red theme
+  const getCategoryColor = (index) => {
+    const colors = [
+      { bg: '#FEE2E2', text: '#DC2626' }, // Red
+      { bg: '#FCE7F3', text: '#DB2777' }, // Pink
+      { bg: '#FEF3C7', text: '#D97706' }, // Amber
+      { bg: '#DBEAFE', text: '#2563EB' }, // Blue
+    ];
+    return colors[index % colors.length];
+  };
+
+  if (loading) {
     return (
-      <View style={styles.starsContainer}>
-        {[...Array(5)].map((_, index) => (
-          <Text key={index} style={styles.star}>
-            {index < count ? '⭐' : '☆'}
-          </Text>
-        ))}
-      </View>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4F46E5" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
     );
-  };
+  }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}> 
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.greeting}>Hi, Dev 👋</Text>
+        <View>
+          <Text style={styles.headerTitle}>
+            Duro<Text style={styles.headerTitleAccent}>Academy</Text>
+          </Text>
+          <Text style={styles.headerSubtitle}>Welcome back, {userName}!</Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.notificationButton}>
-            <Text style={styles.bellIcon}>🔔</Text>
-            <View style={styles.notificationDot} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity 
+          style={styles.notificationButton}
+          onPress={() => navigation.navigate('Notifications')}
+        >
+          <Text style={styles.bellIcon}>🔔</Text>
+          <View style={styles.notificationBadge} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh}           colors={['#DC2626']} />
+        }
       >
-        {/* Featured Modules */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Featured Modules</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.horizontalScroll}
-          >
-            {featuredModules.map((module) => (
-              <TouchableOpacity
-                key={module.id}
-                style={styles.featuredCard}
-                activeOpacity={0.9}
+        {/* Featured Module Banner */}
+        {featuredModule && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.bannerCard}
+              onPress={() => navigation.navigate('ModuleDetails', { moduleId: featuredModule.id })}
+            >
+              <ImageBackground
+                source={{ uri: featuredModule.image_url || 'https://storage.googleapis.com/uxpilot-auth.appspot.com/1b74cb2dc5-fe83ed35ff1b3caf6250.png' }}
+                style={styles.bannerImage}
+                imageStyle={styles.bannerImageStyle}
               >
-                <View style={styles.featuredImageContainer}>
-                  <Image
-                    source={{ uri: module.image }}
-                    style={styles.featuredImage}
-                  />
-                  <View
-                    style={[
-                      styles.badge,
-                      { backgroundColor: module.badgeColor },
-                    ]}
-                  >
-                    <Text style={styles.badgeText}>{module.badge}</Text>
+                <View style={styles.bannerOverlay}>
+                  <Text style={styles.bannerTitle}>{featuredModule.title}</Text>
+                  <Text style={styles.bannerDescription}>{featuredModule.description}</Text>
+                  <View style={styles.bannerButton}>
+                    <Text style={styles.bannerButtonText}>Start Learning →</Text>
                   </View>
                 </View>
-                <View style={styles.featuredContent}>
-                  <Text style={styles.featuredTitle}>{module.title}</Text>
-                  <Text style={styles.featuredSubtitle}>{module.subtitle}</Text>
+              </ImageBackground>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Continue Watching */}
+        {continueWatching && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Continue Watching</Text>
+            <TouchableOpacity style={styles.continueCard}>
+              <Image 
+                source={{ uri: continueWatching.image }} 
+                style={styles.continueImage} 
+              />
+              <View style={styles.continueContent}>
+                <Text style={styles.continueCategory}>{continueWatching.category}</Text>
+                <Text style={styles.continueTitle}>{continueWatching.title}</Text>
+                <View style={styles.progressContainer}>
+                  <View style={styles.progressBar}>
+                    <View style={[styles.progressFill, { width: `${continueWatching.progress}%` }]} />
+                  </View>
+                  <Text style={styles.progressText}>{continueWatching.progress}% complete</Text>
                 </View>
+              </View>
+              <TouchableOpacity style={styles.playButton}>
+                <Text style={styles.playIcon}>▶</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Categories */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Categories</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.categoriesScroll}
-          >
-            {categories.map((category) => (
+          <View style={styles.categoriesGrid}>
+            {categories.map((category, index) => (
               <TouchableOpacity
                 key={category.id}
-                style={[
-                  styles.categoryButton,
-                  selectedCategory === category.id && styles.categoryButtonActive,
-                ]}
-                onPress={() => handleCategoryPress(category)}
+                style={styles.categoryCard}
+                onPress={() => navigation.navigate('CategoryDetails', { 
+                  categoryId: category.id,
+                  categoryName: category.name 
+                })}
               >
-                <Text
-                  style={[
-                    styles.categoryText,
-                    selectedCategory === category.id && styles.categoryTextActive,
-                  ]}
-                >
-                  {category.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Continue Learning */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Continue Learning</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.horizontalScroll}
-          >
-            {continueLearning.map((course) => (
-              <TouchableOpacity
-                key={course.id}
-                style={styles.continueCard}
-                activeOpacity={0.9}
-              >
-                <View style={styles.continueContent}>
-                  <View style={styles.progressCircle}>
-                    <Text style={styles.progressText}>{course.progress}%</Text>
-                  </View>
-                  <View style={styles.continueInfo}>
-                    <Text style={styles.continueTitle}>{course.title}</Text>
-                    <Text style={styles.continueSubtitle}>
-                      {course.subtitle}
-                    </Text>
-                    <View style={styles.progressBarContainer}>
-                      <View
-                        style={[
-                          styles.progressBar,
-                          { width: `${course.progress}%` },
-                        ]}
-                      />
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Recommended */}
-        <View style={[styles.section, styles.lastSection]}>
-          <Text style={styles.sectionTitle}>Recommended for you</Text>
-          <View style={styles.recommendedContainer}>
-            {recommended.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.recommendedCard}
-                activeOpacity={0.9}
-              >
-                <Image
-                  source={{ uri: item.image }}
-                  style={styles.recommendedImage}
-                />
-                <View style={styles.recommendedContent}>
-                  <Text style={styles.recommendedTitle}>{item.title}</Text>
-                  <Text style={styles.recommendedSubtitle}>
-                    {item.subtitle}
+                <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(index).bg }]}>
+                  <Text style={[styles.categoryIconText, { color: getCategoryColor(index).text }]}>
+                    {getCategoryIcon(category.name)}
                   </Text>
-                  <View style={styles.recommendedMeta}>
-                    <Text style={styles.rating}>{item.rating}</Text>
-                    {renderStars(item.stars)}
-                    <Text style={styles.duration}>• {item.duration}</Text>
-                  </View>
                 </View>
-                <Text style={styles.chevron}>›</Text>
+                <Text style={styles.categoryName}>{category.name}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
-      </ScrollView>
 
-      {/* FAB Button */}
-      <TouchableOpacity style={styles.fab}>
-        <Text style={styles.fabIcon}>⚡</Text>
-      </TouchableOpacity>
-    </View>
+        {/* Notifications */}
+        {notifications.length > 0 && (
+          <View style={[styles.section, styles.lastSection]}>
+            <Text style={styles.sectionTitle}>Notifications</Text>
+            <View style={styles.notificationsList}>
+              {notifications.map((notification) => (
+                <View key={notification.id} style={styles.notificationCard}>
+                  <View style={[
+                    styles.notificationIcon,
+                    { backgroundColor: notification.type === 'success' ? '#10B98120' : '#EAB30820' }
+                  ]}>
+                    <Text style={styles.notificationIconText}>
+                      {notification.type === 'success' ? '✓' : '★'}
+                    </Text>
+                  </View>
+                  <View style={styles.notificationContent}>
+                    <Text style={styles.notificationTitle}>{notification.title}</Text>
+                    <Text style={styles.notificationTime}>
+                      {new Date(notification.created_at).toLocaleTimeString()}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: moderateScale(12),
+    color: '#6B7280',
+    fontSize: moderateScale(14),
   },
   header: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    paddingHorizontal: moderateScale(20),
+    paddingVertical: verticalScale(16),
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  greeting: {
-    fontSize: 20,
-    fontWeight: '600',
+  headerTitle: {
+    fontSize: moderateScale(20),
+    fontWeight: 'bold',
     color: '#111827',
   },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  headerTitleAccent: {
+    color: '#DC2626',
+  },
+  headerSubtitle: {
+    fontSize: moderateScale(12),
+    color: '#6B7280',
+    marginTop: moderateScale(2),
   },
   notificationButton: {
     position: 'relative',
-    padding: 8,
   },
   bellIcon: {
-    fontSize: 20,
+    fontSize: moderateScale(24),
   },
-  notificationDot: {
+  notificationBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 8,
-    height: 8,
-    backgroundColor: '#dc2626',
-    borderRadius: 4,
+    top: 0,
+    right: 0,
+    width: moderateScale(8),
+    height: moderateScale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#DC2626',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   scrollView: {
     flex: 1,
   },
   section: {
-    marginTop: 24,
-    paddingHorizontal: 16,
+    paddingHorizontal: moderateScale(20),
+    marginTop: verticalScale(24),
   },
   lastSection: {
-    marginBottom: 24,
+    marginBottom: verticalScale(32),
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontWeight: '600',
     color: '#111827',
-    marginBottom: 16,
+    marginBottom: verticalScale(12),
   },
-  horizontalScroll: {
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-  },
-  featuredCard: {
-    width: 320,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    marginRight: 16,
+  bannerCard: {
+    borderRadius: moderateScale(16),
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  featuredImageContainer: {
-    position: 'relative',
-  },
-  featuredImage: {
+  bannerImage: {
     width: '100%',
-    height: 176,
+    height: verticalScale(192),
   },
-  badge: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+  bannerImageStyle: {
+    borderRadius: moderateScale(16),
   },
-  badgeText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '500',
+  bannerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+    padding: moderateScale(16),
   },
-  featuredContent: {
-    padding: 16,
+  bannerTitle: {
+    fontSize: moderateScale(18),
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: moderateScale(4),
   },
-  featuredTitle: {
-    fontSize: 16,
+  bannerDescription: {
+    fontSize: moderateScale(14),
+    color: '#F3F4F6',
+    marginBottom: moderateScale(12),
+  },
+  bannerButton: {
+    backgroundColor: '#DC2626',
+    paddingVertical: verticalScale(10),
+    paddingHorizontal: moderateScale(16),
+    borderRadius: moderateScale(8),
+    alignItems: 'center',
+  },
+  bannerButtonText: {
+    fontSize: moderateScale(14),
     fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  featuredSubtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  categoriesScroll: {
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-  },
-  categoryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginRight: 12,
-  },
-  categoryButtonActive: {
-    backgroundColor: '#dc2626',
-    borderColor: '#dc2626',
-  },
-  categoryText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-  },
-  categoryTextActive: {
-    color: '#ffffff',
+    color: '#FFFFFF',
   },
   continueCard: {
-    width: 288,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    marginRight: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    padding: moderateScale(12),
+    flexDirection: 'row',
+    alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowRadius: 4,
     elevation: 2,
+  },
+  continueImage: {
+    width: moderateScale(96),
+    height: moderateScale(96),
+    borderRadius: moderateScale(8),
   },
   continueContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  progressCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 3,
-    borderColor: '#dc2626',
-    backgroundColor: '#ffffff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  progressText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#dc2626',
-  },
-  continueInfo: {
     flex: 1,
+    marginLeft: moderateScale(16),
+  },
+  continueCategory: {
+    fontSize: moderateScale(12),
+    color: '#DC2626',
+    fontWeight: '500',
+    marginBottom: moderateScale(4),
   },
   continueTitle: {
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: moderateScale(15),
+    fontWeight: '600',
     color: '#111827',
-    marginBottom: 4,
+    marginBottom: moderateScale(8),
   },
-  continueSubtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 8,
-  },
-  progressBarContainer: {
-    width: '100%',
-    height: 4,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 2,
-    overflow: 'hidden',
+  progressContainer: {
+    marginTop: moderateScale(4),
   },
   progressBar: {
+    height: moderateScale(6),
+    backgroundColor: '#E5E7EB',
+    borderRadius: moderateScale(3),
+    overflow: 'hidden',
+  },
+  progressFill: {
     height: '100%',
-    backgroundColor: '#dc2626',
-    borderRadius: 2,
+    backgroundColor: '#DC2626',
+    borderRadius: moderateScale(3),
   },
-  recommendedContainer: {
-    gap: 12,
+  progressText: {
+    fontSize: moderateScale(12),
+    color: '#6B7280',
+    marginTop: moderateScale(4),
   },
-  recommendedCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  recommendedImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    marginRight: 12,
-  },
-  recommendedContent: {
-    flex: 1,
-  },
-  recommendedTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#111827',
-    marginBottom: 2,
-  },
-  recommendedSubtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 4,
-  },
-  recommendedMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  rating: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    gap: 2,
-  },
-  star: {
-    fontSize: 10,
-    color: '#fbbf24',
-  },
-  duration: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginLeft: 4,
-  },
-  chevron: {
-    fontSize: 24,
-    color: '#9ca3af',
-    marginLeft: 8,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 90,
-    right: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#dc2626',
+  playButton: {
+    width: moderateScale(40),
+    height: moderateScale(40),
+    borderRadius: moderateScale(20),
+    backgroundColor: '#FEE2E2',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    marginLeft: moderateScale(12),
   },
-  fabIcon: {
-    fontSize: 24,
+  playIcon: {
+    fontSize: moderateScale(16),
+    color: '#DC2626',
+  },
+  categoriesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: moderateScale(-6),
+  },
+  categoryCard: {
+    width: (width - moderateScale(52)) / 2,
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    padding: moderateScale(16),
+    flexDirection: 'row',
+    alignItems: 'center',
+    margin: moderateScale(6),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  categoryIcon: {
+    width: moderateScale(40),
+    height: moderateScale(40),
+    borderRadius: moderateScale(8),
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: moderateScale(12),
+  },
+  categoryIconText: {
+    fontSize: moderateScale(20),
+  },
+  categoryName: {
+    fontSize: moderateScale(14),
+    fontWeight: '500',
+    color: '#111827',
+    flex: 1,
+  },
+  notificationsList: {
+    gap: moderateScale(12),
+  },
+  notificationCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    padding: moderateScale(12),
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  notificationIcon: {
+    width: moderateScale(32),
+    height: moderateScale(32),
+    borderRadius: moderateScale(16),
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: moderateScale(12),
+  },
+  notificationIconText: {
+    fontSize: moderateScale(16),
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationTitle: {
+    fontSize: moderateScale(14),
+    fontWeight: '500',
+    color: '#111827',
+    marginBottom: moderateScale(4),
+  },
+  notificationTime: {
+    fontSize: moderateScale(12),
+    color: '#6B7280',
   },
 });
 

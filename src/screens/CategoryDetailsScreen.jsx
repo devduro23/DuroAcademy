@@ -1,137 +1,161 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
-  Platform,
+  Dimensions,
+  ScrollView,
+  ActivityIndicator,
+  RefreshControl,
   Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { supabase } from '../supabase-client';
+import { useAuth } from '../context/AuthContext';
 
-const CategoryDetailsScreen = ({ route, navigation }) => {
-  const { categoryName = 'Product Training' } = route.params || {};
-  
-  const [viewMode, setViewMode] = useState('grid');
-  const [sortBy, setSortBy] = useState('Popular');
-  const [showModal, setShowModal] = useState(false);
-  const [selectedCard, setSelectedCard] = useState(null);
+// Responsive helper functions
+const { width, height } = Dimensions.get('window');
+const scale = (size) => (width / 375) * size;
+const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
+const verticalScale = (size) => (height / 812) * size;
 
-  // Define modules for different categories
-  const categoryModules = {
-    'Product Training': [
-      {
-        id: 1,
-        name: 'Plywood',
-        moduleCount: 6,
-        progress: 65,
-        icon: '📚',
-        iconBg: '#dbeafe',
-        iconColor: '#2563eb',
-        progressColor: '#10b981',
-        progressText: 'text-green-600',
-      },
-      {
-        id: 2,
-        name: 'Blockboard',
-        moduleCount: 4,
-        progress: 25,
-        icon: '📦',
-        iconBg: '#fed7aa',
-        iconColor: '#ea580c',
-        progressColor: '#3b82f6',
-        progressText: 'text-blue-600',
-      },
-      {
-        id: 3,
-        name: 'Doors & Veneers',
-        moduleCount: 8,
-        progress: 0,
-        icon: '🚪',
-        iconBg: '#e9d5ff',
-        iconColor: '#9333ea',
-        progressColor: '#d1d5db',
-        progressText: 'text-gray-500',
-        badge: 'New',
-      },
-    ],
-    'Sales Training': [
-      {
-        id: 1,
-        name: 'Sales Fundamentals',
-        moduleCount: 5,
-        progress: 80,
-        icon: '💼',
-        iconBg: '#dbeafe',
-        iconColor: '#2563eb',
-        progressColor: '#10b981',
-        progressText: 'text-green-600',
-      },
-      {
-        id: 2,
-        name: 'Customer Relations',
-        moduleCount: 4,
-        progress: 50,
-        icon: '🤝',
-        iconBg: '#fef3c7',
-        iconColor: '#d97706',
-        progressColor: '#3b82f6',
-        progressText: 'text-blue-600',
-      },
-    ],
-    'General Training': [
-      {
-        id: 1,
-        name: 'Workplace Safety',
-        moduleCount: 3,
-        progress: 100,
-        icon: '🦺',
-        iconBg: '#dcfce7',
-        iconColor: '#16a34a',
-        progressColor: '#10b981',
-        progressText: 'text-green-600',
-      },
-      {
-        id: 2,
-        name: 'Company Policies',
-        moduleCount: 2,
-        progress: 0,
-        icon: '📋',
-        iconBg: '#e0e7ff',
-        iconColor: '#4f46e5',
-        progressColor: '#d1d5db',
-        progressText: 'text-gray-500',
-      },
-    ],
-    'Podcast': [
-      {
-        id: 1,
-        name: 'Mann Ki Baat Duro Ke Sath',
-        moduleCount: 10,
-        progress: 30,
-        icon: '🎙️',
-        iconBg: '#fce7f3',
-        iconColor: '#db2777',
-        progressColor: '#3b82f6',
-        progressText: 'text-blue-600',
-      },
-    ],
+const ModuleDetailsScreen = ({ route, navigation }) => {
+  const { categoryId, categoryName } = route.params || {};
+  const { user } = useAuth();
+  const [modules, setModules] = useState([]);
+  const [modulesProgress, setModulesProgress] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [viewMode, setViewMode] = useState('grid'); // grid or list
+  const [sortBy, setSortBy] = useState('popular'); // popular, recent, progress
+  const [selectedModule, setSelectedModule] = useState(null);
+  const [showQuickActions, setShowQuickActions] = useState(false);
+
+  // Fetch modules with actual video count and user progress
+  const fetchModules = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch modules with video count
+      const { data: modulesData, error: modulesError } = await supabase
+        .from('modules')
+        .select(`
+          *,
+          videos (id)
+        `)
+        .eq('category_id', categoryId)
+        .order('created_at', { ascending: false });
+
+      if (modulesError) {
+        console.error('Error fetching modules:', modulesError);
+        setModules([]);
+        return;
+      }
+
+      // Calculate video count for each module
+      const modulesWithCount = modulesData.map(module => ({
+        ...module,
+        videoCount: module.videos?.length || 0,
+      }));
+
+      setModules(modulesWithCount);
+
+      // Fetch user progress for all modules if user is logged in
+      if (user?.id) {
+        const moduleIds = modulesData.map(m => m.id);
+        
+        const { data: progressData, error: progressError } = await supabase
+          .from('user_module_progress')
+          .select('*')
+          .eq('user_id', user.id)
+          .in('module_id', moduleIds);
+
+        if (!progressError && progressData) {
+          // Create a map of module progress
+          const progressMap = {};
+          progressData.forEach(progress => {
+            progressMap[progress.module_id] = {
+              videosCompleted: progress.videos_completed || 0,
+              totalVideos: progress.total_videos || 0,
+              progressPercent: progress.progress_percent || 0,
+            };
+          });
+          setModulesProgress(progressMap);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching modules:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [categoryId, user?.id]);
+
+  useEffect(() => {
+    if (categoryId) {
+      fetchModules();
+    }
+  }, [fetchModules, categoryId]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchModules();
+    setRefreshing(false);
+  }, [fetchModules]);
+
+  // Get module icon and color based on index
+  const getModuleStyle = (index) => {
+    const styles = [
+      { icon: '📚', bg: '#DBEAFE', color: '#2563EB' },
+      { icon: '🎯', bg: '#FFEDD5', color: '#EA580C' },
+      { icon: '🚪', bg: '#E9D5FF', color: '#9333EA' },
+      { icon: '🎨', bg: '#FEE2E2', color: '#DC2626' },
+      { icon: '⚙️', bg: '#D1FAE5', color: '#10B981' },
+    ];
+    return styles[index % styles.length];
   };
 
-  const modules = categoryModules[categoryName] || [];
+  // Get actual module progress from database
+  const getModuleProgress = (moduleId) => {
+    const progress = modulesProgress[moduleId];
+    if (!progress) return 0;
+    return Math.round(progress.progressPercent);
+  };
 
+  // Get progress color
+  const getProgressColor = (progress) => {
+    if (progress === 0) return '#D1D5DB';
+    if (progress < 50) return '#3B82F6';
+    return '#10B981';
+  };
+
+  // Handle long press on module card
   const handleLongPress = (module) => {
-    setSelectedCard(module);
-    setShowModal(true);
+    setSelectedModule(module);
+    setShowQuickActions(true);
   };
 
-  const closeModal = () => {
-    setShowModal(false);
-    setSelectedCard(null);
+  // Handle module press - navigate to ModuleDetails to show lessons
+  const handleModulePress = (module) => {
+    navigation.navigate('ModuleDetails', { 
+      moduleId: module.id,
+      moduleName: module.title 
+    });
   };
+
+  if (loading && modules.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#DC2626" />
+          <Text style={styles.loadingText}>Loading modules...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -142,151 +166,143 @@ const CategoryDetailsScreen = ({ route, navigation }) => {
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>{categoryName}</Text>
+            <Text style={styles.headerTitle}>{categoryName || 'Modules'}</Text>
             <Text style={styles.headerSubtitle}>
-              {categoryName === 'Podcast' 
-                ? 'Listen and learn' 
-                : 'Learn about our offerings'}
+              {modules.length} {modules.length === 1 ? 'module' : 'modules'}
             </Text>
           </View>
         </View>
         <TouchableOpacity style={styles.filterButton}>
-          <Text style={styles.filterIcon}>⚙️</Text>
+          <Text style={styles.filterIcon}>⚙</Text>
         </TouchableOpacity>
       </View>
 
       {/* Breadcrumb */}
       <View style={styles.breadcrumb}>
         <Text style={styles.breadcrumbText}>Home</Text>
-        <Text style={styles.breadcrumbChevron}>›</Text>
-        <Text style={styles.breadcrumbActive}>{categoryName}</Text>
+        <Text style={styles.breadcrumbSeparator}>›</Text>
+        <Text style={styles.breadcrumbTextActive}>{categoryName}</Text>
       </View>
 
       {/* Controls */}
       <View style={styles.controls}>
+        {/* View Toggle */}
         <View style={styles.viewToggle}>
           <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              viewMode === 'grid' && styles.toggleButtonActive,
-            ]}
+            style={[styles.viewButton, viewMode === 'grid' && styles.viewButtonActive]}
             onPress={() => setViewMode('grid')}
           >
-            <Text
-              style={[
-                styles.toggleText,
-                viewMode === 'grid' && styles.toggleTextActive,
-              ]}
-            >
-              ⊞ Grid
+            <Text style={[styles.viewButtonText, viewMode === 'grid' && styles.viewButtonTextActive]}>
+              ▦ Grid
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              viewMode === 'list' && styles.toggleButtonActive,
-            ]}
+            style={[styles.viewButton, viewMode === 'list' && styles.viewButtonActive]}
             onPress={() => setViewMode('list')}
           >
-            <Text
-              style={[
-                styles.toggleText,
-                viewMode === 'list' && styles.toggleTextActive,
-              ]}
-            >
+            <Text style={[styles.viewButtonText, viewMode === 'list' && styles.viewButtonTextActive]}>
               ☰ List
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Sort Dropdown */}
         <TouchableOpacity style={styles.sortButton}>
-          <Text style={styles.sortText}>{sortBy}</Text>
-          <Text style={styles.sortChevron}>▼</Text>
+          <Text style={styles.sortButtonText}>Popular</Text>
+          <Text style={styles.sortButtonIcon}>▼</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Main Content */}
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.mainContent}>
-          {modules.length > 0 ? (
-            modules.map((module) => (
+      {/* Modules List */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#DC2626']} />
+        }
+      >
+        {modules.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>📦</Text>
+            <Text style={styles.emptyTitle}>No modules found</Text>
+            <Text style={styles.emptySubtitle}>Check back later for new content</Text>
+          </View>
+        ) : (
+          modules.map((module, index) => {
+            const moduleStyle = getModuleStyle(index);
+            const progress = getModuleProgress(module.id);
+            const progressColor = getProgressColor(progress);
+            const isNew = index === modules.length - 1; // Mark last module as new
+            const videoCount = module.videoCount;
+
+            return (
               <TouchableOpacity
                 key={module.id}
                 style={styles.moduleCard}
-                activeOpacity={0.7}
-                onPress={() => navigation.navigate('ModuleDetails', { 
-                  moduleName: module.name,
-                  categoryName: categoryName 
-                })}
+                onPress={() => handleModulePress(module)}
                 onLongPress={() => handleLongPress(module)}
               >
-                <View style={styles.cardContent}>
-                  <View
-                    style={[styles.iconContainer, { backgroundColor: module.iconBg }]}
-                  >
-                    <Text style={styles.icon}>{module.icon}</Text>
+                <View style={styles.moduleCardContent}>
+                  {/* Icon */}
+                  <View style={[styles.moduleIcon, { backgroundColor: moduleStyle.bg }]}>
+                    <Text style={styles.moduleIconText}>{moduleStyle.icon}</Text>
                   </View>
-                  <View style={styles.cardInfo}>
-                    <Text style={styles.moduleName}>{module.name}</Text>
-                    <Text style={styles.moduleCount}>
-                      {module.moduleCount} {categoryName === 'Podcast' ? 'episodes' : 'modules'}
+
+                  {/* Content */}
+                  <View style={styles.moduleTextContainer}>
+                    <Text style={styles.moduleTitle}>{module.title}</Text>
+                    <Text style={styles.moduleSubtitle}>
+                      {videoCount} {videoCount === 1 ? 'lesson' : 'lessons'}
                     </Text>
+
+                    {/* Progress Bar */}
                     <View style={styles.progressBarContainer}>
-                      <View
-                        style={[
-                          styles.progressBar,
-                          {
-                            width: `${module.progress}%`,
-                            backgroundColor: module.progressColor,
-                          },
-                        ]}
-                      />
+                      <View style={styles.progressBarBg}>
+                        <View 
+                          style={[
+                            styles.progressBarFill, 
+                            { width: `${progress}%`, backgroundColor: progressColor }
+                          ]} 
+                        />
+                      </View>
+                      <Text style={[styles.progressText, { color: progressColor }]}>
+                        {progress === 0 ? 'Not started' : `${progress}% complete`}
+                      </Text>
                     </View>
-                    <Text
-                      style={[
-                        styles.progressText,
-                        { color: module.progressColor },
-                      ]}
-                    >
-                      {module.progress === 0
-                        ? 'Not started'
-                        : `${module.progress}% complete`}
-                    </Text>
                   </View>
-                  <View style={styles.cardRight}>
-                    {module.badge && (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{module.badge}</Text>
+
+                  {/* Right Section */}
+                  <View style={styles.moduleRight}>
+                    {isNew && (
+                      <View style={styles.newBadge}>
+                        <Text style={styles.newBadgeText}>New</Text>
                       </View>
                     )}
-                    <Text style={styles.chevron}>›</Text>
+                    <Text style={styles.chevronIcon}>›</Text>
                   </View>
                 </View>
               </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No modules available</Text>
-            </View>
-          )}
-        </View>
+            );
+          })
+        )}
       </ScrollView>
 
       {/* Quick Actions Modal */}
       <Modal
-        visible={showModal}
+        visible={showQuickActions}
         transparent={true}
         animationType="slide"
-        onRequestClose={closeModal}
+        onRequestClose={() => setShowQuickActions(false)}
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={closeModal}
+          onPress={() => setShowQuickActions(false)}
         >
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>
-              {selectedCard?.name} - Quick Actions
+              {selectedModule?.title} - Quick Actions
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalAction}>
@@ -297,7 +313,10 @@ const CategoryDetailsScreen = ({ route, navigation }) => {
                 <Text style={styles.actionIcon}>↗</Text>
                 <Text style={styles.actionText}>Share</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalAction} onPress={closeModal}>
+              <TouchableOpacity
+                style={styles.modalAction}
+                onPress={() => setShowQuickActions(false)}
+              >
                 <Text style={styles.actionIcon}>✕</Text>
                 <Text style={styles.actionText}>Cancel</Text>
               </TouchableOpacity>
@@ -305,25 +324,34 @@ const CategoryDetailsScreen = ({ route, navigation }) => {
           </View>
         </TouchableOpacity>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: moderateScale(12),
+    color: '#6B7280',
+    fontSize: moderateScale(14),
   },
   header: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingTop: Platform.OS === 'ios' ? 50 : 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: moderateScale(16),
+    paddingVertical: verticalScale(12),
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#E5E7EB',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -331,193 +359,207 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backButton: {
-    padding: 8,
-    marginRight: 12,
-    marginLeft: -8,
+    padding: moderateScale(8),
+    marginLeft: moderateScale(-8),
+    marginRight: moderateScale(8),
   },
   backIcon: {
-    fontSize: 24,
+    fontSize: moderateScale(24),
     color: '#374151',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontWeight: '600',
     color: '#111827',
   },
   headerSubtitle: {
-    fontSize: 12,
-    color: '#6b7280',
+    fontSize: moderateScale(12),
+    color: '#6B7280',
+    marginTop: moderateScale(2),
   },
   filterButton: {
-    padding: 8,
+    padding: moderateScale(8),
   },
   filterIcon: {
-    fontSize: 18,
+    fontSize: moderateScale(20),
+    color: '#6B7280',
   },
   breadcrumb: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#f9fafb',
+    paddingHorizontal: moderateScale(16),
+    paddingVertical: verticalScale(8),
+    backgroundColor: '#F9FAFB',
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F3F4F6',
   },
   breadcrumbText: {
-    fontSize: 14,
-    color: '#6b7280',
+    fontSize: moderateScale(13),
+    color: '#6B7280',
   },
-  breadcrumbChevron: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginHorizontal: 8,
+  breadcrumbSeparator: {
+    fontSize: moderateScale(14),
+    color: '#9CA3AF',
+    marginHorizontal: moderateScale(8),
   },
-  breadcrumbActive: {
-    fontSize: 14,
-    color: '#3b82f6',
+  breadcrumbTextActive: {
+    fontSize: moderateScale(13),
+    color: '#DC2626',
     fontWeight: '500',
   },
   controls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#ffffff',
+    paddingHorizontal: moderateScale(16),
+    paddingVertical: verticalScale(12),
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#F3F4F6',
   },
   viewToggle: {
     flexDirection: 'row',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    padding: 4,
+    backgroundColor: '#F3F4F6',
+    borderRadius: moderateScale(8),
+    padding: moderateScale(4),
   },
-  toggleButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+  viewButton: {
+    paddingHorizontal: moderateScale(12),
+    paddingVertical: moderateScale(6),
+    borderRadius: moderateScale(6),
   },
-  toggleButtonActive: {
-    backgroundColor: '#3b82f6',
+  viewButtonActive: {
+    backgroundColor: '#DC2626',
   },
-  toggleText: {
-    fontSize: 14,
+  viewButtonText: {
+    fontSize: moderateScale(13),
     fontWeight: '500',
-    color: '#6b7280',
+    color: '#6B7280',
   },
-  toggleTextActive: {
-    color: '#ffffff',
+  viewButtonTextActive: {
+    color: '#FFFFFF',
   },
   sortButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: moderateScale(12),
+    paddingVertical: moderateScale(6),
+    borderRadius: moderateScale(6),
   },
-  sortText: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginRight: 4,
+  sortButtonText: {
+    fontSize: moderateScale(13),
+    color: '#6B7280',
+    marginRight: moderateScale(4),
   },
-  sortChevron: {
-    fontSize: 10,
-    color: '#6b7280',
+  sortButtonIcon: {
+    fontSize: moderateScale(10),
+    color: '#9CA3AF',
   },
   scrollView: {
     flex: 1,
   },
-  mainContent: {
-    padding: 16,
+  scrollContent: {
+    padding: moderateScale(16),
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: verticalScale(80),
+  },
+  emptyIcon: {
+    fontSize: moderateScale(48),
+    marginBottom: moderateScale(16),
+  },
+  emptyTitle: {
+    fontSize: moderateScale(18),
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: moderateScale(8),
+  },
+  emptySubtitle: {
+    fontSize: moderateScale(14),
+    color: '#6B7280',
   },
   moduleCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(12),
+    padding: moderateScale(16),
+    marginBottom: moderateScale(16),
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    padding: 16,
-    marginBottom: 16,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
-    elevation: 2,
+    elevation: 1,
   },
-  cardContent: {
+  moduleCardContent: {
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+  moduleIcon: {
+    width: moderateScale(48),
+    height: moderateScale(48),
+    borderRadius: moderateScale(12),
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: moderateScale(16),
   },
-  icon: {
-    fontSize: 24,
+  moduleIconText: {
+    fontSize: moderateScale(24),
   },
-  cardInfo: {
+  moduleTextContainer: {
     flex: 1,
   },
-  moduleName: {
-    fontSize: 16,
+  moduleTitle: {
+    fontSize: moderateScale(16),
     fontWeight: '600',
     color: '#111827',
-    marginBottom: 4,
+    marginBottom: moderateScale(4),
   },
-  moduleCount: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 8,
+  moduleSubtitle: {
+    fontSize: moderateScale(13),
+    color: '#6B7280',
+    marginBottom: moderateScale(8),
   },
   progressBarContainer: {
-    width: '100%',
-    height: 8,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 4,
+    marginTop: moderateScale(4),
   },
-  progressBar: {
+  progressBarBg: {
+    width: '100%',
+    height: moderateScale(8),
+    backgroundColor: '#E5E7EB',
+    borderRadius: moderateScale(4),
+    overflow: 'hidden',
+  },
+  progressBarFill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: moderateScale(4),
   },
   progressText: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: moderateScale(12),
+    marginTop: moderateScale(4),
   },
-  cardRight: {
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginLeft: 8,
+  moduleRight: {
+    alignItems: 'flex-end',
+    marginLeft: moderateScale(12),
   },
-  badge: {
-    backgroundColor: '#fee2e2',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginBottom: 8,
+  newBadge: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: moderateScale(8),
+    paddingVertical: moderateScale(4),
+    borderRadius: moderateScale(12),
+    marginBottom: moderateScale(4),
   },
-  badgeText: {
-    fontSize: 12,
-    color: '#dc2626',
-    fontWeight: '500',
+  newBadgeText: {
+    fontSize: moderateScale(11),
+    fontWeight: '600',
+    color: '#DC2626',
   },
-  chevron: {
-    fontSize: 24,
-    color: '#9ca3af',
-  },
-  emptyState: {
-    paddingVertical: 60,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#6b7280',
+  chevronIcon: {
+    fontSize: moderateScale(24),
+    color: '#9CA3AF',
   },
   modalOverlay: {
     flex: 1,
@@ -525,43 +567,43 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: moderateScale(16),
+    borderTopRightRadius: moderateScale(16),
+    padding: moderateScale(16),
   },
   modalHandle: {
-    width: 48,
-    height: 4,
-    backgroundColor: '#d1d5db',
-    borderRadius: 2,
+    width: moderateScale(48),
+    height: moderateScale(4),
+    backgroundColor: '#D1D5DB',
+    borderRadius: moderateScale(2),
     alignSelf: 'center',
-    marginBottom: 16,
+    marginBottom: moderateScale(16),
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(16),
     fontWeight: '600',
     color: '#111827',
-    marginBottom: 16,
+    marginBottom: moderateScale(16),
   },
   modalActions: {
-    gap: 12,
+    gap: moderateScale(12),
   },
   modalAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#f9fafb',
+    padding: moderateScale(12),
+    borderRadius: moderateScale(8),
+    backgroundColor: '#F9FAFB',
   },
   actionIcon: {
-    fontSize: 20,
-    marginRight: 12,
+    fontSize: moderateScale(18),
+    marginRight: moderateScale(12),
   },
   actionText: {
-    fontSize: 16,
+    fontSize: moderateScale(15),
     color: '#111827',
   },
 });
 
-export default CategoryDetailsScreen;
+export default ModuleDetailsScreen;
