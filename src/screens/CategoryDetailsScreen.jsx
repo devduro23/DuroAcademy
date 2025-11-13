@@ -172,9 +172,7 @@ const ModuleDetailsScreen = ({ route, navigation }) => {
             </Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.filterButton}>
-          <Text style={styles.filterIcon}>⚙</Text>
-        </TouchableOpacity>
+        {/* Settings icon removed from header */}
       </View>
 
       {/* Breadcrumb */}
