@@ -282,14 +282,7 @@ const MyLearningScreen = ({ navigation }) => {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Progress</Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerButtonIcon}>⬇️</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerButtonIcon}>⋮</Text>
-          </TouchableOpacity>
-        </View>
+        {/* headerRight removed (down arrow and three dots) */}
       </View>
 
       <ScrollView
