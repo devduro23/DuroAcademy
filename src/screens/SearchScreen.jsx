@@ -33,8 +33,7 @@ const SearchScreen = ({ navigation }) => {
   const [selectedTypes, setSelectedTypes] = useState([]);
   const [showResults, setShowResults] = useState(false);
 
-  // Popular tags
-  const popularTags = ['#leadership', '#cybersecurity', '#agile', '#analytics', '#teamwork'];
+  // Popular tags removed
 
   useEffect(() => {
     if (searchQuery.trim().length > 0) {
@@ -213,16 +212,7 @@ const SearchScreen = ({ navigation }) => {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Search</Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={() => setFilterVisible(true)}>
-            <Text style={styles.headerIcon}>☰</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerIcon}>⋯</Text>
-          </TouchableOpacity>
-        </View>
+        {/* headerRight removed (three-line and three-dots) */}
       </View>
 
       {/* Search Bar */}
@@ -279,19 +269,7 @@ const SearchScreen = ({ navigation }) => {
                 </View>
               )}
 
-              <View style={styles.suggestionBlock}>
-                <Text style={styles.suggestionTitle}>Popular Tags</Text>
-                <View style={styles.tagsContainer}>
-                  {popularTags.map((tag, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.popularTag}
-                      onPress={() => setSearchQuery(tag.replace('#', ''))}>
-                      <Text style={styles.popularTagText}>{tag}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+              {/* Popular Tags section removed */}
             </View>
           </>
         ) : (
