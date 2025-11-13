@@ -345,7 +345,7 @@ const MyLearningScreen = ({ navigation }) => {
 
         {/* Recent Activity */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Activity</Text>
+          <Text style={[styles.sectionTitle, styles.sectionTitleTopGap]}>Recent Activity</Text>
           {recentActivity.length > 0 ? (
             <View style={styles.activityList}>
               {recentActivity.map((item, index) => (
@@ -693,6 +693,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#111827',
     marginBottom: verticalScale(16),
+  },
+  sectionTitleTopGap: {
+    marginTop: verticalScale(8),
   },
   activityList: {
     gap: verticalScale(16),
