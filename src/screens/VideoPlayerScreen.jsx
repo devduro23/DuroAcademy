@@ -123,6 +123,9 @@ const VideoPlayerScreen = ({ route, navigation }) => {
         if (SystemNavigationBar?.setNavigationBarVisibility) {
           SystemNavigationBar.setNavigationBarVisibility(true);
         }
+        if (SystemNavigationBar?.setNavigationBarColor) {
+          SystemNavigationBar.setNavigationBarColor('#FFFFFF', false);
+        }
       } catch (_) {}
     }
   }, [isFullscreen]);

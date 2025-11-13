@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, Text, StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Navigation
 import HomeStackNavigator from './HomeStackNavigator';
@@ -13,17 +14,19 @@ import MyLearningScreen from '../screens/MyLearningScreen';
 const Tab = createBottomTabNavigator();
 
 const TabNavigator = () => {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: '#ffffff',
           borderTopWidth: 1,
           borderTopColor: '#e5e7eb',
-          paddingBottom: Platform.OS === 'ios' ? 20 : 10,
-          paddingTop: 10,
-          height: Platform.OS === 'ios' ? 80 : 65,
+          paddingBottom: Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 8),
+          paddingTop: 8,
+          height: 56 + Math.max(insets.bottom, Platform.OS === 'ios' ? 12 : 8),
         },
         tabBarActiveTintColor: '#dc2626',
         tabBarInactiveTintColor: '#9ca3af',
