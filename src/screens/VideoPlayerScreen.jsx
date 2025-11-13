@@ -65,6 +65,9 @@ const VideoPlayerScreen = ({ route, navigation }) => {
         try {
           videoRef.current?.dismissFullscreenPlayer?.();
         } catch (_) {}
+        // Also ensure we exit our manual fullscreen container
+        try { Orientation.lockToPortrait(); } catch (_) {}
+        setIsFullscreen(false);
         return true; // Prevent default back action
       }
       // Not in fullscreen: prefer navigating back if possible, else exit app to avoid GO_BACK warning
@@ -83,6 +86,42 @@ const VideoPlayerScreen = ({ route, navigation }) => {
     });
 
     return () => backHandler.remove();
+  }, [isFullscreen]);
+
+  // Sync fullscreen UI with device orientation to ensure true edge-to-edge on Android
+  useEffect(() => {
+    const onDeviceOrientation = (orientation) => {
+      const isLand = orientation === 'LANDSCAPE-LEFT' || orientation === 'LANDSCAPE-RIGHT';
+      setIsFullscreen(isLand);
+    };
+    try {
+      Orientation.addDeviceOrientationListener(onDeviceOrientation);
+    } catch (_) {}
+    return () => {
+      try { Orientation.removeDeviceOrientationListener(onDeviceOrientation); } catch (_) {}
+    };
+  }, []);
+
+  // Effect: when fullscreen state changes, manage system UI consistently
+  useEffect(() => {
+    if (isFullscreen) {
+      try { StatusBar.setHidden(true, 'fade'); } catch (_) {}
+      try {
+        if (SystemNavigationBar?.setNavigationBarVisibility) {
+          SystemNavigationBar.setNavigationBarVisibility(false);
+        }
+        if (SystemNavigationBar?.setNavigationBarColor) {
+          SystemNavigationBar.setNavigationBarColor('#000000', true);
+        }
+      } catch (_) {}
+    } else {
+      try { StatusBar.setHidden(false, 'fade'); } catch (_) {}
+      try {
+        if (SystemNavigationBar?.setNavigationBarVisibility) {
+          SystemNavigationBar.setNavigationBarVisibility(true);
+        }
+      } catch (_) {}
+    }
   }, [isFullscreen]);
 
   // Hide Tab Bar when in fullscreen (React Navigation parent TabNavigator)
@@ -704,7 +743,7 @@ const VideoPlayerScreen = ({ route, navigation }) => {
       )}
 
       {/* Video Player */}
-      <View style={styles.videoContainer}>
+      <View style={isFullscreen ? styles.videoContainerFullscreen : styles.videoContainer}>
         {videoUrl ? (
           <>
             <Video
