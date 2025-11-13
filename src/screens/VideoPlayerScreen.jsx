@@ -45,6 +45,9 @@ const VideoPlayerScreen = ({ route, navigation }) => {
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [quiz, setQuiz] = useState(null);
+  const [moduleVideos, setModuleVideos] = useState([]);
+  const [prevVideo, setPrevVideo] = useState(null);
+  const [nextVideo, setNextVideo] = useState(null);
   const videoRef = useRef(null);
   const lastUpdateTime = useRef(0);
 
@@ -198,6 +201,50 @@ const VideoPlayerScreen = ({ route, navigation }) => {
       fetchQuiz(); // Fetch quiz associated with this video
     }
   }, [fetchVideo, lessonId]);
+
+  // Fetch ordered videos for this module to compute previous/next
+  const fetchModuleVideos = useCallback(async () => {
+    try {
+      if (!moduleId) return;
+      const { data: vids, error } = await supabase
+        .from('videos')
+        .select('id,title,video_order')
+        .eq('module_id', moduleId)
+        .order('video_order', { ascending: true });
+      if (error) {
+        console.error('Error fetching module videos:', error);
+        setModuleVideos([]);
+        setPrevVideo(null);
+        setNextVideo(null);
+        return;
+      }
+      setModuleVideos(vids || []);
+      // Determine current index and neighbors
+      const idx = (vids || []).findIndex(v => v.id === lessonId);
+      setPrevVideo(idx > 0 ? vids[idx - 1] : null);
+      setNextVideo(idx >= 0 && idx < (vids || []).length - 1 ? vids[idx + 1] : null);
+    } catch (e) {
+      console.error('Error in fetchModuleVideos:', e);
+    }
+  }, [moduleId, lessonId]);
+
+  useEffect(() => {
+    fetchModuleVideos();
+  }, [fetchModuleVideos]);
+
+  const handleGoToVideo = (target) => {
+    if (!target?.id) return;
+    // Reset some local state so UI updates immediately
+    setIsCompleted(false);
+    setPaused(false);
+    setCurrentTime(0);
+    // Replace to avoid stacking lots of VideoPlayer screens
+    navigation.replace('VideoPlayer', {
+      lessonId: target.id,
+      lessonTitle: target.title,
+      moduleId: moduleId,
+    });
+  };
 
   // Fetch quiz/assessment associated with this video
   const fetchQuiz = useCallback(async () => {
@@ -816,18 +863,30 @@ const VideoPlayerScreen = ({ route, navigation }) => {
             )}
 
             <View style={styles.lessonNavButtons}>
-              <TouchableOpacity style={styles.navButton}>
+              <TouchableOpacity
+                style={[styles.navButton, !prevVideo && { opacity: 0.5 }]}
+                disabled={!prevVideo}
+                onPress={() => handleGoToVideo(prevVideo)}
+              >
                 <Text style={styles.navIcon}>←</Text>
                 <View style={styles.navTextContainer}>
                   <Text style={styles.navLabel}>Previous</Text>
-                  <Text style={styles.navTitle}>Wood Selection</Text>
+                  <Text style={styles.navTitle} numberOfLines={1}>
+                    {prevVideo?.title || '—'}
+                  </Text>
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.navButton}>
+              <TouchableOpacity
+                style={[styles.navButton, !nextVideo && { opacity: 0.5 }]}
+                disabled={!nextVideo}
+                onPress={() => handleGoToVideo(nextVideo)}
+              >
                 <View style={[styles.navTextContainer, styles.navTextRight]}>
                   <Text style={styles.navLabel}>Next</Text>
-                  <Text style={styles.navTitle}>Quality Testing</Text>
+                  <Text style={styles.navTitle} numberOfLines={1}>
+                    {nextVideo?.title || '—'}
+                  </Text>
                 </View>
                 <Text style={styles.navIcon}>→</Text>
               </TouchableOpacity>
