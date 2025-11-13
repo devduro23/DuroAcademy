@@ -123,14 +123,7 @@ const ProfileScreen = ({ navigation }) => {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile</Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerIcon}>⤴</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerButton}>
-            <Text style={styles.headerIcon}>⋯</Text>
-          </TouchableOpacity>
-        </View>
+        {/* headerRight removed (upward arrow and three dots) */}
       </View>
 
       <ScrollView 
@@ -207,19 +200,6 @@ const ProfileScreen = ({ navigation }) => {
         <View style={styles.linksSection}>
           <Text style={styles.sectionHeaderTitle}>Quick Links</Text>
           <View style={styles.linksContainer}>
-            <TouchableOpacity style={styles.linkCard}>
-              <View style={styles.linkLeft}>
-                <View style={[styles.linkIcon, { backgroundColor: '#E9D5FF' }]}>
-                  <Text style={styles.linkEmojiLarge}>🔖</Text>
-                </View>
-                <View style={styles.linkText}>
-                  <Text style={styles.linkTitle}>My Bookmarks</Text>
-                  <Text style={styles.linkSubtitle}>8 saved items</Text>
-                </View>
-              </View>
-              <Text style={styles.chevronLarge}>›</Text>
-            </TouchableOpacity>
-            
             <TouchableOpacity style={styles.linkCard}>
               <View style={styles.linkLeft}>
                 <View style={[styles.linkIcon, { backgroundColor: '#D1FAE5' }]}>
