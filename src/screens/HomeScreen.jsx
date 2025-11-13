@@ -212,7 +212,7 @@ const HomeScreen = ({ navigation }) => {
       >
         {/* Banners (from Supabase) */}
         {banners.length > 0 && (
-          <View style={styles.section}>
+          <View style={[styles.section, styles.bannerSection]}>
             <ScrollView
               ref={bannerScrollRef}
               horizontal
@@ -441,6 +441,9 @@ const styles = StyleSheet.create({
   },
   bannerImageStyle: {
     borderRadius: moderateScale(16),
+  },
+  bannerSection: {
+    paddingHorizontal: 0,
   },
   dotsContainer: {
     flexDirection: 'row',
