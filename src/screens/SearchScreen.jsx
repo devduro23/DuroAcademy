@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../supabase-client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '../context/AuthContext';
 
 // Responsive helper functions
 const { width, height } = Dimensions.get('window');
@@ -20,8 +22,9 @@ const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * fact
 const verticalScale = (size) => (height / 812) * size;
 
 const SearchScreen = ({ navigation }) => {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [recentSearches, setRecentSearches] = useState(['data security', 'project management', 'communication']);
+  const [recentSearches, setRecentSearches] = useState([]);
   const [modules, setModules] = useState([]);
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -40,6 +43,40 @@ const SearchScreen = ({ navigation }) => {
       setShowResults(false);
     }
   }, [searchQuery]);
+
+  useEffect(() => {
+    loadRecentSearches();
+  }, [user?.id]);
+
+  const RECENTS_KEY = useCallback(() => `recent_searches_${user?.id || 'guest'}`, [user?.id]);
+
+  const loadRecentSearches = useCallback(async () => {
+    try {
+      if (user?.id) {
+        const { data, error } = await supabase
+          .from('search_history')
+          .select('query, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        if (!error && data) {
+          // unique, most recent first
+          const unique = [];
+          for (const row of data) {
+            if (row.query && !unique.includes(row.query)) unique.push(row.query);
+          }
+          setRecentSearches(unique);
+          await AsyncStorage.setItem(RECENTS_KEY(), JSON.stringify(unique));
+          return;
+        }
+      }
+    } catch (_) {}
+    // Fallback to AsyncStorage
+    try {
+      const raw = await AsyncStorage.getItem(RECENTS_KEY());
+      if (raw) setRecentSearches(JSON.parse(raw));
+    } catch (_) {}
+  }, [user?.id, RECENTS_KEY]);
 
   const searchContent = async () => {
     setLoading(true);
@@ -86,14 +123,46 @@ const SearchScreen = ({ navigation }) => {
     });
   };
 
-  const removeRecentSearch = (search) => {
-    setRecentSearches(recentSearches.filter(s => s !== search));
+  const removeRecentSearch = async (search) => {
+    try {
+      setRecentSearches(prev => prev.filter(s => s !== search));
+      if (user?.id) {
+        await supabase
+          .from('search_history')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('query', search);
+      }
+    } catch (_) {}
+    try {
+      const updated = recentSearches.filter(s => s !== search);
+      await AsyncStorage.setItem(RECENTS_KEY(), JSON.stringify(updated));
+    } catch (_) {}
   };
 
-  const addRecentSearch = (search) => {
-    if (search.trim() && !recentSearches.includes(search.trim())) {
-      setRecentSearches([search.trim(), ...recentSearches.slice(0, 4)]);
-    }
+  const addRecentSearch = async (search) => {
+    const q = search.trim();
+    if (!q) return;
+    // Update local state: move to front, de-dupe, cap 10
+    setRecentSearches(prev => {
+      const next = [q, ...prev.filter(s => s !== q)].slice(0, 10);
+      AsyncStorage.setItem(RECENTS_KEY(), JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+    // Persist to Supabase if available
+    try {
+      if (user?.id) {
+        // Optional: delete duplicates then insert
+        await supabase
+          .from('search_history')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('query', q);
+        await supabase
+          .from('search_history')
+          .insert({ user_id: user.id, query: q });
+      }
+    } catch (_) {}
   };
 
   const handleSearchSubmit = () => {
