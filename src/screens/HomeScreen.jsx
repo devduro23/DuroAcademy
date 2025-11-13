@@ -25,7 +25,8 @@ const HomeScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   
   // State
-  const [featuredModule, setFeaturedModule] = useState(null);
+  const [featuredModule, setFeaturedModule] = useState(null); // legacy, kept if needed elsewhere
+  const [banners, setBanners] = useState([]);
   const [continueWatching, setContinueWatching] = useState(null);
   const [categories, setCategories] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -49,15 +50,18 @@ const HomeScreen = ({ navigation }) => {
         setCategories(categoriesData);
       }
 
-      // Fetch featured module (first module)
-      const { data: modulesData, error: modulesError } = await supabase
-        .from('modules')
+      // Fetch active banners (ordered)
+      const { data: bannersData, error: bannersError } = await supabase
+        .from('banners')
         .select('*')
-        .limit(1)
-        .single();
+        .eq('is_active', true)
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: false });
 
-      if (!modulesError && modulesData) {
-        setFeaturedModule(modulesData);
+      if (!bannersError && Array.isArray(bannersData)) {
+        setBanners(bannersData);
+      } else {
+        setBanners([]);
       }
 
       // Fetch recent notifications
@@ -189,27 +193,40 @@ const HomeScreen = ({ navigation }) => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh}           colors={['#DC2626']} />
         }
       >
-        {/* Featured Module Banner */}
-        {featuredModule && (
+        {/* Banners (from Supabase) */}
+        {banners.length > 0 && (
           <View style={styles.section}>
-            <TouchableOpacity
-              style={styles.bannerCard}
-              onPress={() => navigation.navigate('ModuleDetails', { moduleId: featuredModule.id })}
-            >
-              <ImageBackground
-                source={{ uri: featuredModule.image_url || 'https://storage.googleapis.com/uxpilot-auth.appspot.com/1b74cb2dc5-fe83ed35ff1b3caf6250.png' }}
-                style={styles.bannerImage}
-                imageStyle={styles.bannerImageStyle}
+            {banners.map((banner) => (
+              <TouchableOpacity
+                key={banner.id}
+                style={[styles.bannerCard, { marginBottom: verticalScale(12) }]}
+                onPress={() => {
+                  const type = (banner.redirect_type || '').toLowerCase();
+                  const id = banner.redirect_id;
+                  if (!id) return;
+                  if (type === 'module') {
+                    navigation.navigate('ModuleDetails', { moduleId: id });
+                  } else if (type === 'video') {
+                    navigation.navigate('VideoPlayer', { lessonId: id });
+                  } else if (type === 'category') {
+                    navigation.navigate('CategoryDetails', { categoryId: id });
+                  }
+                }}
               >
-                <View style={styles.bannerOverlay}>
-                  <Text style={styles.bannerTitle}>{featuredModule.title}</Text>
-                  <Text style={styles.bannerDescription}>{featuredModule.description}</Text>
-                  <View style={styles.bannerButton}>
-                    <Text style={styles.bannerButtonText}>Start Learning →</Text>
+                <ImageBackground
+                  source={{ uri: banner.image_url || 'https://storage.googleapis.com/uxpilot-auth.appspot.com/1b74cb2dc5-fe83ed35ff1b3caf6250.png' }}
+                  style={styles.bannerImage}
+                  imageStyle={styles.bannerImageStyle}
+                >
+                  <View style={styles.bannerOverlay}>
+                    <Text style={styles.bannerTitle}>{banner.title}</Text>
+                    <View style={styles.bannerButton}>
+                      <Text style={styles.bannerButtonText}>View →</Text>
+                    </View>
                   </View>
-                </View>
-              </ImageBackground>
-            </TouchableOpacity>
+                </ImageBackground>
+              </TouchableOpacity>
+            ))}
           </View>
         )}
 
