@@ -11,7 +11,8 @@ import {
   RefreshControl,
   ImageBackground,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabase-client';
 
@@ -20,8 +21,17 @@ const scale = (size) => (width / 375) * size;
 const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
 const verticalScale = (size) => (height / 812) * size;
 
+// Optional Android navigation bar control
+let SystemNavigationBar;
+try {
+  SystemNavigationBar = require('react-native-system-navigation-bar').default;
+} catch (e) {
+  SystemNavigationBar = null;
+}
+
 const HomeScreen = ({ navigation }) => {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   
   // State
@@ -130,6 +140,20 @@ const HomeScreen = ({ navigation }) => {
     fetchData();
   }, [fetchData]);
 
+  // Ensure Android navigation bar is visible and styled correctly when Home is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (SystemNavigationBar?.setNavigationBarVisibility) {
+        SystemNavigationBar.setNavigationBarVisibility(true);
+      }
+      if (SystemNavigationBar?.setNavigationBarColor) {
+        // White nav bar with dark icons
+        SystemNavigationBar.setNavigationBarColor('#FFFFFF', false);
+      }
+      return () => {};
+    }, [])
+  );
+
   // Auto-rotate banners
   useEffect(() => {
     if (!banners || banners.length <= 1) return;
@@ -206,6 +230,7 @@ const HomeScreen = ({ navigation }) => {
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: verticalScale(24) + (insets?.bottom || 0) }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh}           colors={['#DC2626']} />
         }
