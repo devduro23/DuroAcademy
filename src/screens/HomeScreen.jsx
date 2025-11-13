@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -31,6 +31,8 @@ const HomeScreen = ({ navigation }) => {
   const [categories, setCategories] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+  const bannerScrollRef = useRef(null);
 
   // Get user name
   const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
@@ -128,6 +130,21 @@ const HomeScreen = ({ navigation }) => {
     fetchData();
   }, [fetchData]);
 
+  // Auto-rotate banners
+  useEffect(() => {
+    if (!banners || banners.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentBannerIndex(prev => {
+        const next = (prev + 1) % banners.length;
+        try {
+          bannerScrollRef.current?.scrollTo?.({ x: next * width, animated: true });
+        } catch (_) {}
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [banners?.length]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchData().finally(() => setRefreshing(false));
@@ -196,37 +213,64 @@ const HomeScreen = ({ navigation }) => {
         {/* Banners (from Supabase) */}
         {banners.length > 0 && (
           <View style={styles.section}>
-            {banners.map((banner) => (
-              <TouchableOpacity
-                key={banner.id}
-                style={[styles.bannerCard, { marginBottom: verticalScale(12) }]}
-                onPress={() => {
-                  const type = (banner.redirect_type || '').toLowerCase();
-                  const id = banner.redirect_id;
-                  if (!id) return;
-                  if (type === 'module') {
-                    navigation.navigate('ModuleDetails', { moduleId: id });
-                  } else if (type === 'video') {
-                    navigation.navigate('VideoPlayer', { lessonId: id });
-                  } else if (type === 'category') {
-                    navigation.navigate('CategoryDetails', { categoryId: id });
-                  }
-                }}
-              >
-                <ImageBackground
-                  source={{ uri: banner.image_url || 'https://storage.googleapis.com/uxpilot-auth.appspot.com/1b74cb2dc5-fe83ed35ff1b3caf6250.png' }}
-                  style={styles.bannerImage}
-                  imageStyle={styles.bannerImageStyle}
-                >
-                  <View style={styles.bannerOverlay}>
-                    <Text style={styles.bannerTitle}>{banner.title}</Text>
-                    <View style={styles.bannerButton}>
-                      <Text style={styles.bannerButtonText}>View →</Text>
-                    </View>
-                  </View>
-                </ImageBackground>
-              </TouchableOpacity>
-            ))}
+            <ScrollView
+              ref={bannerScrollRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e) => {
+                const index = Math.round(e.nativeEvent.contentOffset.x / width);
+                setCurrentBannerIndex(index);
+              }}
+            >
+              {banners.map((banner, i) => (
+                <View key={banner.id} style={{ width }}>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    style={[styles.bannerCard, { marginHorizontal: moderateScale(20) }]}
+                    onPress={() => {
+                      const type = (banner.redirect_type || '').toLowerCase();
+                      const id = banner.redirect_id;
+                      if (!id) return;
+                      if (type === 'module') {
+                        navigation.navigate('ModuleDetails', { moduleId: id });
+                      } else if (type === 'video') {
+                        navigation.navigate('VideoPlayer', { lessonId: id });
+                      } else if (type === 'category') {
+                        navigation.navigate('CategoryDetails', { categoryId: id });
+                      }
+                    }}
+                  >
+                    <ImageBackground
+                      source={{ uri: banner.image_url || 'https://storage.googleapis.com/uxpilot-auth.appspot.com/1b74cb2dc5-fe83ed35ff1b3caf6250.png' }}
+                      style={styles.bannerImage}
+                      imageStyle={styles.bannerImageStyle}
+                    >
+                      <View style={styles.bannerOverlay}>
+                        <Text style={styles.bannerTitle}>{banner.title}</Text>
+                        <View style={styles.bannerButton}>
+                          <Text style={styles.bannerButtonText}>View →</Text>
+                        </View>
+                      </View>
+                    </ImageBackground>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+            {/* Pagination Dots */}
+            {banners.length > 1 && (
+              <View style={styles.dotsContainer}>
+                {banners.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.dot,
+                      i === currentBannerIndex ? styles.dotActive : null,
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -397,6 +441,23 @@ const styles = StyleSheet.create({
   },
   bannerImageStyle: {
     borderRadius: moderateScale(16),
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: verticalScale(8),
+    gap: moderateScale(6),
+  },
+  dot: {
+    width: moderateScale(6),
+    height: moderateScale(6),
+    borderRadius: moderateScale(3),
+    backgroundColor: '#E5E7EB',
+  },
+  dotActive: {
+    backgroundColor: '#DC2626',
+    width: moderateScale(16),
   },
   bannerOverlay: {
     flex: 1,
