@@ -215,7 +215,7 @@ const MyLearningScreen = ({ navigation }) => {
           )
         `)
         .eq('user_id', user.id)
-        .eq('completed', true)
+        .not('last_watched_at', 'is', null)
         .order('last_watched_at', { ascending: false })
         .limit(5);
 
@@ -341,18 +341,7 @@ const MyLearningScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Filter and Export */}
-        <View style={styles.filterSection}>
-          <TouchableOpacity style={styles.filterButton}>
-            <Text style={styles.filterIcon}>📅</Text>
-            <Text style={styles.filterText}>Last 30 days</Text>
-            <Text style={styles.filterChevron}>▼</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.exportButton}>
-            <Text style={styles.exportIcon}>⬇️</Text>
-            <Text style={styles.exportText}>Export</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Filter and Export section removed as requested */}
 
         {/* Recent Activity */}
         <View style={styles.section}>
@@ -369,12 +358,12 @@ const MyLearningScreen = ({ navigation }) => {
                       {item.videos?.title || 'Video'}
                     </Text>
                     <Text style={styles.activitySubtitle}>
-                      Completed • {item.videos?.modules?.name || 'Module'}
+                      Watched • {item.videos?.modules?.name || 'Module'}
                     </Text>
                     <View style={styles.activityFooter}>
                       <View style={styles.activityBadge}>
                         <Text style={styles.activityBadgeText}>
-                          {getTimeAgo(item.last_watched_at)}
+                          {getTimeAgo(item.last_watched_at || item.updated_at || item.created_at)}
                         </Text>
                       </View>
                       <Text style={styles.activityDuration}>
