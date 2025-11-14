@@ -18,3 +18,15 @@ Notes:
 - To verify generation, check:
   - Android: `android/app/src/main/res/mipmap-*/ic_launcher.png` and `ic_launcher_foreground.png`
   - iOS: `ios/DuroAcademy/Images.xcassets/AppIcon.appiconset/` for resized assets.
+
+Troubleshooting:
+- Error: `unknown command 'set-icon'` → You used the old syntax; the correct one is `react-native-make icon`.
+- Error: `npm error could not determine executable to run` when using `npx react-native-make`:
+  1. Clear npx cache: `npx clear-npx-cache` (or delete `%AppData%\npm-cache\_npx`).
+  2. Try explicit package invocation:
+     `npx --package react-native-make react-native-make icon --path assets\app-icon\duro-app-icon.png --platform android --background "#FFFFFF"`
+  3. Ensure Node >= 20 (your `package.json` already specifies this) and run `npm ls react-native-make` to confirm installation.
+  4. As a fallback install globally: `npm i -g react-native-make` then run `react-native-make icon ...` directly.
+  5. Use forward slashes if backslashes fail: `assets/app-icon/duro-app-icon.png`.
+  6. Run `npx react-native-make --help` to confirm CLI resolves.
+- If adaptive icon background appears wrong, re-run without `--background` and supply a transparent PNG.
